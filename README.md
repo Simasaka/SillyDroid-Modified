@@ -1,53 +1,86 @@
-# SillyDroid Android（个人 Fork）
+<div align="center">
 
-> **这是 [jialmaster/SillyDroid](https://github.com/jialmaster/SillyDroid) 的个人 Fork**，基线 `master` @ `725b5938ab`。
-> 保留上游完整构建链与许可（**PolyForm Noncommercial 1.0.0**），在此之上做宿主适配、功能新增与性能优化。上游 APK 自更新已禁用，避免整包覆盖本 Fork 的宿主适配。
+# SillyDroid Android
+
+**个人 Fork —— 宿主适配 · 功能增强 · 性能优化**
+
+[![Release](https://img.shields.io/github/v/release/Simasaka/SillyDroid-Modified?display_name=tag&label=Release&color=2563eb)](https://github.com/Simasaka/SillyDroid-Modified/releases)
+[![APK](https://img.shields.io/badge/APK-下载即用-3DDC84?logo=android&logoColor=white)](APK_DOWNLOAD.md)
+[![Tavern](https://img.shields.io/badge/SillyTavern-1.19.0-8b5cf6)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-red)](LICENSE)
+
+基于 [jialmaster/SillyDroid](https://github.com/jialmaster/SillyDroid) `master` @ `725b5938ab`，保留上游完整构建链与许可。
+
+[**下载 APK**](APK_DOWNLOAD.md) · [更新日志](CHANGELOG.md) · [改动明细](docs/CHANGES.md) · [参考来源](docs/REFERENCES.md)
+
+</div>
+
+---
 
 ## 本 Fork 下载
 
-- **完整 APK**（安装即用，已内置 `linux-arm64` 运行时与服务端资产）：见 [APK_DOWNLOAD.md](APK_DOWNLOAD.md) 或 [Release 页面](https://github.com/Simasaka/SillyDroid-Modified/releases)。
-- 当前版本：`v1.0.1.1-tavern.1.19.0`（versionCode `1810001001`，debug 签名，与此前安装包签名一致，可覆盖安装保留全部数据）。
-- 逐版本更新说明见 [CHANGELOG.md](CHANGELOG.md)。
+| 项目 | 说明 |
+| --- | --- |
+| 完整 APK | [APK_DOWNLOAD.md](APK_DOWNLOAD.md) · [Release 页面](https://github.com/Simasaka/SillyDroid-Modified/releases)（内置 `linux-arm64` 运行时与服务端，安装即用） |
+| 当前版本 | `v1.0.1.1-tavern.1.19.0`（versionCode `1810001001`） |
+| 安装方式 | debug 签名，与此前安装包一致，覆盖安装保留全部数据 |
+| 更新说明 | 逐版本见 [CHANGELOG.md](CHANGELOG.md) |
+
+> 上游 APK 自更新已禁用，避免整包覆盖本 Fork 的宿主适配；酒馆版本升降级请用设置页「酒馆版本更新」。
 
 ## 个人版本改动更新
 
-相对原版的主要改动如下。基础批次的逐条文件级明细见 [改动与修复明细](docs/CHANGES.md)，最近批次的版本说明见 [CHANGELOG.md](CHANGELOG.md)。
+基础批次的逐条文件级明细见 [改动与修复明细](docs/CHANGES.md)，最近批次的版本说明见 [CHANGELOG.md](CHANGELOG.md)。
 
 ### 新增功能
 
-- **酒馆版本更新 / 任意版本回退**：设置页就地替换 SillyTavern 源码，指定 tag 即可升降级，用户数据（角色卡、对话、配置）不动。
-- **下载线路探测与 DNS 预解析**：自动优选 GitHub 原站或镜像，断网重连后可重新检测。
-- **后台服务状态悬浮球**：用外部浏览器时单击看运行日志、双击回应用，不打断当前页面。
-- **外部浏览器选择**：Firefox / 系统默认 / 每次询问，切换无需重启服务。
-- **彻底退出**：停服务 + 关悬浮球 + 清通知 + 退出，避免后台残留。
-- **后台运行权限引导**：电池优化豁免状态与厂商「应用启动管理」直达入口。
-- **GeckoView 长按文字操作菜单**：复制 / 剪切 / 粘贴 / 全选 / 删除，内置页面与悬浮浏览器均可用。
+| 功能 | 说明 |
+| --- | --- |
+| 酒馆版本更新 / 回退 | 设置页就地替换 SillyTavern 源码，指定 tag 升降级，用户数据不动 |
+| 线路探测 / DNS 预解析 | 自动优选 GitHub 原站或镜像，断网重连可重新检测 |
+| 后台状态悬浮球 | 外部浏览器场景单击看日志、双击回应用，不打断当前页面 |
+| 外部浏览器选择 | Firefox / 系统默认 / 每次询问，切换无需重启服务 |
+| 彻底退出 | 停服务 + 关悬浮球 + 清通知 + 退出，避免后台残留 |
+| 后台权限引导 | 电池优化豁免与厂商「应用启动管理」直达入口 |
+| 长按文字菜单 | GeckoView 复制 / 剪切 / 粘贴 / 全选 / 删除 |
 
 ### 问题修复
 
-- **GeckoView 输入框跟随键盘**；关闭「界面密度」滑块、只允许字号缩放，消除输入栏横向溢出与破版。
-- **后台模式切换**：关闭后台模式后内置浏览器自动恢复；换版本后自动刷新到新版页面。
-- **更新链路可靠性**：修复装旧版本重启又变回内置版、已是最新仍重复下载、更新卡在「重启服务」、无 npm 环境更新必然失败、进度解析崩溃中断等问题。
-- **更新事务与并发加固**：临时工作区隔离、异常退出清理现场、按提交标记回滚、维护操作互斥串行化、更新任务迁移到应用级协程作用域。
-- **其他**：外部浏览器被系统默认劫持、后台模式悬浮球被误关、GeckoView 输入法重复弹出、线路检测后不再显示原始诊断 JSON。
+| 方面 | 说明 |
+| --- | --- |
+| GeckoView 显示 | 输入框跟随键盘；关闭界面密度滑块、只允许字号缩放，消除破版 |
+| 后台模式切换 | 关闭后台模式后内置浏览器自动恢复；换版本后自动刷新新版页面 |
+| 更新链路可靠性 | 修复重启回退内置版、重复下载、卡在重启服务、无 npm 失败、进度解析崩溃 |
+| 事务与并发加固 | 临时工作区隔离、异常退出清理、按提交标记回滚、维护互斥串行、应用级协程 |
+| 其他 | 外部浏览器劫持、悬浮球误关、输入法重复弹出、移除诊断 JSON 显示 |
 
-### 性能优化（2026-11-08）
+### 性能优化 <sub>2026-11-08</sub>
 
-- **后台发热大幅改善**：悬浮浏览器切到后台时改为快照冻结停帧，后台 GPU 占用与功耗显著下降。
-- **内存与进程精简**：关闭 fission 站点隔离、扩展并入父进程运行（单站点本地应用，实测减少约 360MB 内存）；debug 诊断日志仅在设置页「调试模式」开启时启用。
-- **滚动性能模式**：页面滚动期间临时禁用毛玻璃 / 滤镜 / 阴影并暂停 CSS 动画，停止后自动恢复。仅作用于内置 GeckoView，**不影响外部浏览器**，对后续新增的美化脚本同样通用生效。（重度美化叠加的滚动天花板在内容侧，大幅提升建议用精简版美化脚本。）
-- **GPU 合成余量**：MSAA 抗锯齿 4x → 2x，启动时尽力请求最高显示刷新率。
+| 优化 | 说明 |
+| --- | --- |
+| 后台发热 | 悬浮浏览器切后台快照冻结停帧，后台 GPU / 功耗显著下降 |
+| 内存 / 进程 | 关闭 fission、扩展并入父进程（实测省约 360MB）；诊断日志仅调试模式启用 |
+| 滚动性能模式 | 滚动时临时禁用毛玻璃 / 滤镜 / 阴影并暂停动画；仅内置 GeckoView，不影响外部浏览器 |
+| GPU 合成 | MSAA 4x → 2x，尽力请求最高显示刷新率 |
+
+> 滚动性能模式对后续新增美化脚本通用生效；重度美化叠加的滚动天花板在内容侧，大幅提升建议用精简版美化脚本。
+
+## 文档导航
 
 | 文档 | 内容 |
 | --- | --- |
-| [改动与修复明细](docs/CHANGES.md) | 基础批次相对原版新增了什么、修好了什么；逐条列出对应文件、原因与实测结果 |
-| [CHANGELOG.md](CHANGELOG.md) | 逐版本更新说明（含最近的性能优化批次） |
+| [改动与修复明细](docs/CHANGES.md) | 基础批次逐条列出对应文件、原因与实测结果 |
+| [CHANGELOG.md](CHANGELOG.md) | 逐版本更新说明（含最近性能优化批次） |
 | [APK_DOWNLOAD.md](APK_DOWNLOAD.md) | 完整 APK 下载链接、大小与 SHA-256 |
 | [参考来源](docs/REFERENCES.md) | 代码基线、上游构建链约束与设计参考项目 |
 
-> **署名说明**：本 Fork 全部新增功能（代码、脚本、界面文案与文档）均由 AI 助手依据使用需求生成、调试与整理，用户本人未编写代码；需求描述、真机验证与最终决策由用户完成。上游原有代码、构建链与许可归原作者所有。
+## 说明
+
+> **署名**：本 Fork 全部新增功能（代码、脚本、界面文案与文档）均由 AI 助手依据使用需求生成、调试与整理，用户本人未编写代码；需求描述、真机验证与最终决策由用户完成。上游原有代码、构建链与许可归原作者所有。
 >
-> **隐私说明**：本仓库不含设备运行时数据，自定义白名单 IP、浏览器 localStorage、角色卡与聊天记录均未纳入版本控制。
+> **隐私**：仓库不含设备运行时数据，自定义白名单 IP、浏览器 localStorage、角色卡与聊天记录均未纳入版本控制。
+
+---
 
 > 以下为上游原始 README，未经删改。
 
