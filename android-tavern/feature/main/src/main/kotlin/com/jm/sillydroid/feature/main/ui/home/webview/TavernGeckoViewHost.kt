@@ -4,7 +4,6 @@ import android.app.ActivityManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.graphics.drawable.GradientDrawable
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -90,15 +89,16 @@ class TavernGeckoViewHost(
         private var sharedRuntime: GeckoRuntime? = null
 
         @Synchronized
-        private fun runtime(activity: AppCompatActivity): GeckoRuntime {
+        private fun runtime(activity: AppCompatActivity, debugDiagnosticsEnabled: Boolean): GeckoRuntime {
             sharedRuntime?.let { return it }
-            val debuggable = activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+            // debug 包是日常主力包：Gecko 全量调试日志、页面 console 转发和远程调试服务常驻会持续吃帧时间，
+            // 只在设置页"调试模式"打开时启用（重启 App 后生效）。
             val settings = GeckoRuntimeSettings.Builder()
                 .javaScriptEnabled(true)
-                .consoleOutput(true)
-                .debugLogging(debuggable)
-                .remoteDebuggingEnabled(debuggable)
-                .aboutConfigEnabled(debuggable)
+                .consoleOutput(debugDiagnosticsEnabled)
+                .debugLogging(debugDiagnosticsEnabled)
+                .remoteDebuggingEnabled(debugDiagnosticsEnabled)
+                .aboutConfigEnabled(debugDiagnosticsEnabled)
                 .webFontsEnabled(true)
                 .webManifest(true)
                 .extensionsWebAPIEnabled(true)
@@ -111,6 +111,13 @@ class TavernGeckoViewHost(
                 .forceUserScalableEnabled(false)
                 .useMaxScreenDepth(true)
                 .lowMemoryDetection(true)
+                // 默认 4x MSAA 在高 DPI 手机上填充率开销大（实测 GPU 进程 ~110%），
+                // 降到 2x 释放合成余量改善滚动；高 DPI 下边缘抗锯齿肉眼差异很小。
+                .glMsaaLevel(2)
+                // 单站点本地应用：fission 站点隔离和独立扩展进程只会多养内容进程（实测多 ~360MB 内存），
+                // 内置扩展是自家桥接脚本，并入父进程运行没有隔离收益损失。
+                .fissionEnabled(false)
+                .extensionsProcessEnabled(false)
                 .build()
             return GeckoRuntime.create(activity.applicationContext, settings)
                 .also { sharedRuntime = it }
@@ -121,8 +128,7 @@ class TavernGeckoViewHost(
     private val browserFrame: ViewGroup = activity.findViewById(R.id.webViewRefreshLayout)
     private val retainedGeckoSurface = floatingBrowserSurfaceStore.acquireGecko(activity, browserFrame)
     private val geckoView: GeckoView = retainedGeckoSurface.geckoView.also { retainedView ->
-        // GeckoView 作为替代内核的关键目标是减少系统 WebView renderer gone，同时保持 GPU 合成路径常驻。
-        retainedView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        // TextureView 后端本身就是 GPU 合成路径；再套 LAYER_TYPE_HARDWARE 会让每帧多一次全屏离屏渲染。
         retainedView.setBackgroundColor(ContextCompat.getColor(activity, R.color.tavern_webview_background))
     }
     private val bootstrapOverlay: View = activity.findViewById(R.id.bootstrapOverlay)
@@ -179,7 +185,7 @@ class TavernGeckoViewHost(
     }
 
     override fun currentBrowserZoomPercent(): Int {
-        return BrowserZoomOptions.sanitize((runtime(activity).settings.fontSizeFactor * 100f).roundToInt())
+        return BrowserZoomOptions.sanitize((runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.fontSizeFactor * 100f).roundToInt())
     }
 
     override fun currentBrowserPageZoomPercent(): Int {
@@ -196,7 +202,7 @@ class TavernGeckoViewHost(
         browserFrame.setBackgroundColor(ContextCompat.getColor(activity, R.color.tavern_webview_background))
         installDelegates()
         if (!session.isOpen) {
-            session.open(runtime(activity))
+            session.open(runtime(activity, hostConfigStore.debugDiagnosticsEnabled))
         }
         if (geckoView.session !== session) {
             geckoView.setSession(session)
@@ -215,14 +221,14 @@ class TavernGeckoViewHost(
     override fun setBrowserZoomPercent(percent: Int): Boolean {
         val sanitizedPercent = BrowserZoomOptions.sanitize(percent)
         val zoomFactor = BrowserZoomOptions.toZoomFactor(sanitizedPercent)
-        runtime(activity).settings.setFontSizeFactor(zoomFactor)
+        runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.setFontSizeFactor(zoomFactor)
         recordCriticalHostDiagnostic(
             category = "geckoview",
             body = buildString {
                 append("event=browser_text_zoom_applied")
                 append(" engine=${browserEngine.name}")
                 append(" percent=$sanitizedPercent")
-                append(" fontSizeFactor=${runtime(activity).settings.fontSizeFactor}")
+                append(" fontSizeFactor=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.fontSizeFactor}")
             }
         )
         return true
@@ -503,6 +509,9 @@ class TavernGeckoViewHost(
             }
 
             override fun onProgressChange(session: GeckoSession, progress: Int) {
+                if (!hostConfigStore.debugDiagnosticsEnabled) {
+                    return
+                }
                 recordHostDiagnostic(
                     category = "geckoview",
                     body = "event=progress_changed progress=$progress ${currentGeckoDiagnosticState()}"
@@ -1151,7 +1160,7 @@ class TavernGeckoViewHost(
             browserEngine = browserEngine,
             surface = geckoView,
             allowedOrigin = runtimeConfigRepository.localServiceUrl(),
-            geckoRuntime = runtime(activity),
+            geckoRuntime = runtime(activity, hostConfigStore.debugDiagnosticsEnabled),
             geckoSession = session
         )
     }
@@ -1358,7 +1367,7 @@ class TavernGeckoViewHost(
             onComplete()
             return
         }
-        runtime(activity).storageController
+        runtime(activity, hostConfigStore.debugDiagnosticsEnabled).storageController
             .clearDataFromHost(host, clearFlags)
             .accept(
                 {
@@ -1489,29 +1498,29 @@ class TavernGeckoViewHost(
             append(" geckoUserAgent=${normalizeDiagnosticValue(GeckoBuildConfig.USER_AGENT_GECKOVIEW_MOBILE)}")
             append(" geckoVersion=${normalizeDiagnosticValue(GeckoBuildConfig.MOZILLA_VERSION)}")
             append(" geckoMilestone=${normalizeDiagnosticValue(GeckoBuildConfig.GRE_MILESTONE)}")
-            append(" geckoJavaScriptEnabled=${runtime(activity).settings.javaScriptEnabled}")
+            append(" geckoJavaScriptEnabled=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.javaScriptEnabled}")
             append(" geckoSessionJavaScriptAllowed=${session.settings.allowJavascript}")
-            append(" geckoAllowInsecureConnections=${runtime(activity).settings.allowInsecureConnections}")
-            append(" geckoWebFontsEnabled=${runtime(activity).settings.webFontsEnabled}")
-            append(" geckoWebManifestEnabled=${runtime(activity).settings.webManifestEnabled}")
-            append(" geckoExtensionsWebAPIEnabled=${runtime(activity).settings.extensionsWebAPIEnabled}")
-            append(" geckoConsoleOutputEnabled=${runtime(activity).settings.consoleOutputEnabled}")
-            append(" geckoDebugLoggingRequested=${isAppDebuggable()}")
-            append(" geckoRemoteDebuggingEnabled=${runtime(activity).settings.remoteDebuggingEnabled}")
-            append(" geckoAboutConfigEnabled=${runtime(activity).settings.aboutConfigEnabled}")
-            append(" geckoLowMemoryDetection=${runtime(activity).settings.lowMemoryDetection}")
-            append(" geckoUseMaxScreenDepth=${runtime(activity).settings.useMaxScreenDepth}")
-            append(" geckoGlMsaaLevel=${runtime(activity).settings.glMsaaLevel}")
-            append(" geckoDisplayDensityOverride=${runtime(activity).settings.displayDensityOverride ?: "-"}")
-            append(" geckoDisplayDpiOverride=${runtime(activity).settings.displayDpiOverride ?: "-"}")
-            append(" geckoScreenSizeOverride=${normalizeDiagnosticValue(runtime(activity).settings.screenSizeOverride?.toShortString())}")
-            append(" geckoInputAutoZoomEnabled=${runtime(activity).settings.inputAutoZoomEnabled}")
-            append(" geckoDoubleTapZoomingEnabled=${runtime(activity).settings.doubleTapZoomingEnabled}")
-            append(" geckoForceUserScalableEnabled=${runtime(activity).settings.forceUserScalableEnabled}")
+            append(" geckoAllowInsecureConnections=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.allowInsecureConnections}")
+            append(" geckoWebFontsEnabled=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.webFontsEnabled}")
+            append(" geckoWebManifestEnabled=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.webManifestEnabled}")
+            append(" geckoExtensionsWebAPIEnabled=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.extensionsWebAPIEnabled}")
+            append(" geckoConsoleOutputEnabled=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.consoleOutputEnabled}")
+            append(" geckoDebugDiagnosticsEnabled=${hostConfigStore.debugDiagnosticsEnabled}")
+            append(" geckoRemoteDebuggingEnabled=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.remoteDebuggingEnabled}")
+            append(" geckoAboutConfigEnabled=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.aboutConfigEnabled}")
+            append(" geckoLowMemoryDetection=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.lowMemoryDetection}")
+            append(" geckoUseMaxScreenDepth=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.useMaxScreenDepth}")
+            append(" geckoGlMsaaLevel=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.glMsaaLevel}")
+            append(" geckoDisplayDensityOverride=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.displayDensityOverride ?: "-"}")
+            append(" geckoDisplayDpiOverride=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.displayDpiOverride ?: "-"}")
+            append(" geckoScreenSizeOverride=${normalizeDiagnosticValue(runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.screenSizeOverride?.toShortString())}")
+            append(" geckoInputAutoZoomEnabled=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.inputAutoZoomEnabled}")
+            append(" geckoDoubleTapZoomingEnabled=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.doubleTapZoomingEnabled}")
+            append(" geckoForceUserScalableEnabled=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.forceUserScalableEnabled}")
             append(" configuredBrowserZoomPercent=${BrowserZoomOptions.sanitize(hostConfigStore.browserZoomPercent)}")
-            append(" geckoFontSizeFactor=${runtime(activity).settings.fontSizeFactor}")
-            append(" geckoFontInflation=${runtime(activity).settings.fontInflationEnabled}")
-            append(" geckoAutomaticFontSizeAdjustment=${runtime(activity).settings.automaticFontSizeAdjustment}")
+            append(" geckoFontSizeFactor=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.fontSizeFactor}")
+            append(" geckoFontInflation=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.fontInflationEnabled}")
+            append(" geckoAutomaticFontSizeAdjustment=${runtime(activity, hostConfigStore.debugDiagnosticsEnabled).settings.automaticFontSizeAdjustment}")
             append(" geckoSessionTrackingProtection=${session.settings.useTrackingProtection}")
             append(" geckoSessionDisplayMode=${session.settings.displayMode}")
             append(" geckoSessionSuspendMediaWhenInactive=${session.settings.suspendMediaWhenInactive}")
@@ -1558,10 +1567,6 @@ class TavernGeckoViewHost(
             append(" geckoHeight=${geckoView.height}")
             append(" geckoLayerType=${resolveViewLayerTypeName(geckoView.layerType)}")
         }
-    }
-
-    private fun isAppDebuggable(): Boolean {
-        return activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     }
 
     private fun resolveViewLayerTypeName(layerType: Int): String {

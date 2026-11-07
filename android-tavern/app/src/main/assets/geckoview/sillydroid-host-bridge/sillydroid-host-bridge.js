@@ -1116,14 +1116,26 @@
           });
         }
         const observer = new MutationObserver(scheduleNotify);
-        if (document.documentElement) {
-          observer.observe(document.documentElement, {
-            attributes: true,
-            childList: true,
-            subtree: true,
-            attributeFilter: ['class', 'style', 'data-theme', 'theme', 'content']
-          });
+        // 只观察主题相关节点：全文档 childList+subtree 会在流式输出每个 token 时触发回调，
+        // 进而每帧执行 getComputedStyle 强制样式重算，拖慢滚动与生成中的页面。
+        const themeAttributeOptions = { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'theme', 'content'] };
+        function observeThemeTargets() {
+          if (document.documentElement) {
+            observer.observe(document.documentElement, themeAttributeOptions);
+          }
+          if (document.body) {
+            observer.observe(document.body, themeAttributeOptions);
+          }
+          if (document.head) {
+            observer.observe(document.head, { childList: true });
+          }
+          const themeMeta = document.querySelector('meta[name="theme-color"]');
+          if (themeMeta) {
+            observer.observe(themeMeta, { attributes: true, attributeFilter: ['content'] });
+          }
         }
+        observeThemeTargets();
+        document.addEventListener('readystatechange', observeThemeTargets);
         window.addEventListener('load', scheduleNotify);
         window.addEventListener('hashchange', scheduleNotify);
         window.addEventListener('popstate', scheduleNotify);
@@ -1665,12 +1677,71 @@
         }
       }
 
+      // 滚动性能模式：滚动时临时关闭磨砂玻璃并暂停无限动画，停手后恢复。
+      // backdrop-filter 每帧都要重新采样模糊背后内容，无限动画持续占用合成器，
+      // 二者是正则美化卡片滚动卡顿的主因（纯文字无此开销）。按属性而非具体脚本匹配，
+      // 后续新增美化只要用到这些属性同样会被约束。仅注入内置 GeckoView，外部浏览器不受影响。
+      function installScrollPerformanceMode() {
+        if (window.__sillyDroidScrollPerformanceModeInstalled) {
+          return;
+        }
+        window.__sillyDroidScrollPerformanceModeInstalled = true;
+        const root = document.documentElement;
+        if (!root) {
+          return;
+        }
+        if (!document.getElementById('sillydroid-scroll-performance-style')) {
+          const style = document.createElement('style');
+          style.id = 'sillydroid-scroll-performance-style';
+          style.textContent = `
+            html[data-sillydroid-scrolling="true"] *,
+            html[data-sillydroid-scrolling="true"] *::before,
+            html[data-sillydroid-scrolling="true"] *::after {
+              backdrop-filter: none !important;
+              -webkit-backdrop-filter: none !important;
+              filter: none !important;
+              box-shadow: none !important;
+              text-shadow: none !important;
+              animation-play-state: paused !important;
+            }`;
+          root.appendChild(style);
+        }
+        let scrolling = false;
+        let restoreTimer = 0;
+        function endScroll() {
+          if (restoreTimer) {
+            clearTimeout(restoreTimer);
+            restoreTimer = 0;
+          }
+          if (scrolling) {
+            scrolling = false;
+            root.removeAttribute('data-sillydroid-scrolling');
+          }
+        }
+        function beginScroll() {
+          if (!scrolling) {
+            scrolling = true;
+            root.setAttribute('data-sillydroid-scrolling', 'true');
+          }
+          if (restoreTimer) {
+            clearTimeout(restoreTimer);
+          }
+          restoreTimer = window.setTimeout(endScroll, 200);
+        }
+        // scroll 不冒泡，用捕获阶段监听任意滚动容器（如 #chat）；passive 避免阻塞滚动线程。
+        window.addEventListener('scroll', beginScroll, { capture: true, passive: true });
+        if ('onscrollend' in window) {
+          window.addEventListener('scrollend', endScroll, { capture: true, passive: true });
+        }
+      }
+
       function installPageHooks() {
         installStartupLoaderAndTheme();
         installNotificationShim();
         installBlobDownloadBridge();
         installSystemBarThemeSync();
         installWebPerformanceDiagnostic();
+        installScrollPerformanceMode();
         refreshHostVersionInfo();
         refreshNotificationPermissionState();
       }

@@ -153,6 +153,7 @@ class MainActivity : AppCompatActivity() {
         )
         WindowCompat.setDecorFitsSystemWindows(window, false)
         allowMainContentIntoDisplayCutout()
+        requestMaxDisplayRefreshRate()
         setContentView(R.layout.activity_main)
         contentRoot = findViewById(R.id.contentRoot)
         statusBarBackground = findViewById(R.id.statusBarBackground)
@@ -973,6 +974,24 @@ class MainActivity : AppCompatActivity() {
             // 主界面已经自行处理系统栏 inset，因此这里允许内容进入短边 cutout 区域。
             attributes.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+    }
+
+    private fun requestMaxDisplayRefreshRate() {
+        // 华为等 LTPO 机型的智能刷新率会在无触摸一段时间后把屏幕降到 30/60Hz，页面动画随之掉帧，
+        // 触摸又临时升回高刷——表现为“闲置后卡顿、滑一下又流畅”。前台期间显式请求面板最高刷新率，
+        // 让动画始终按上限合成；Activity 失焦后该请求自动失效，后台仍走系统省电策略。
+        @Suppress("DEPRECATION")
+        val modes = windowManager.defaultDisplay?.supportedModes ?: return
+        val fastestMode = modes.maxByOrNull { it.refreshRate } ?: return
+        if (fastestMode.refreshRate <= 60f) {
+            return
+        }
+        window.attributes = window.attributes.also { attributes ->
+            // 部分华为机型 mAlwaysRespectAppRequest=false，只设 preferredRefreshRate 不会注册成有效投票，
+            // 同时显式指定最高刷新率的显示模式 id，争取被 DisplayModeDirector 采纳。
+            attributes.preferredDisplayModeId = fastestMode.modeId
+            attributes.preferredRefreshRate = fastestMode.refreshRate
         }
     }
 

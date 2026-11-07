@@ -69,7 +69,7 @@ class FloatingBrowserService : Service() {
         private const val DOCK_ANIMATION_DURATION_MS = 220L
         private const val DOUBLE_TAP_WINDOW_MS = 320L
         private const val LOGS_REFRESH_INTERVAL_MS = 1_500L
-        private const val OVERLAY_PERMISSION_CHECK_INTERVAL_MS = 1_000L
+        private const val OVERLAY_PERMISSION_CHECK_INTERVAL_MS = 5_000L
         private const val OVERLAY_VISIBILITY_DIAGNOSTIC_DELAY_MS = 250L
         private const val ACTION_PREPARE = "com.jm.sillydroid.action.FLOATING_BROWSER_PREPARE"
         private const val ACTION_SHOW = "com.jm.sillydroid.action.FLOATING_BROWSER_SHOW"

@@ -4,9 +4,13 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.MutableContextWrapper
+import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
+import android.widget.ImageView
 import com.jm.sillydroid.core.model.settings.BrowserEngine
 import com.jm.sillydroid.feature.main.ui.home.webview.TavernBrowserHost
 import kotlinx.coroutines.CoroutineScope
@@ -513,6 +517,13 @@ internal class RetainedWebViewSurface internal constructor(
 internal class RetainedGeckoSurface internal constructor(
     private val contextWrapper: MutableContextWrapper
 ) : RetainedBrowserSurface {
+    private companion object {
+        /** overlay 窗口首帧渲染等待与重试节奏；重试耗尽后退回缓存快照或实时表面。 */
+        const val OVERLAY_FREEZE_DELAY_MS = 500L
+        const val OVERLAY_FREEZE_RETRY_MS = 700L
+        const val OVERLAY_FREEZE_MAX_ATTEMPTS = 3
+    }
+
     override val browserEngine: BrowserEngine = BrowserEngine.GECKOVIEW
     val geckoView: GeckoView = GeckoView(contextWrapper).apply {
         // SurfaceView 拥有独立 Surface，无法被小尺寸圆形 overlay 的 outline 裁剪；TextureView 才能保留真实页面像素并呈现为球形。
@@ -539,6 +550,18 @@ internal class RetainedGeckoSurface internal constructor(
     private var overlayContainer: ViewGroup? = null
     private var retainedWidth = 1
     private var retainedHeight = 1
+    private var overlaySnapshotView: ImageView? = null
+    private var overlaySnapshotBitmap: Bitmap? = null
+    private val overlayFreezeHandler = Handler(Looper.getMainLooper())
+    private var overlayFreezeAttempts = 0
+    private val overlayFreezeRunnable = object : Runnable {
+        override fun run() {
+            val container = overlayContainer ?: return
+            if (geckoView.parent === container) {
+                attemptOverlayFreeze(container)
+            }
+        }
+    }
 
     /** 将 GeckoView 挂到当前 Activity 容器并恢复 MATCH_PARENT；GeckoSession 身份保持不变。 */
     override fun attachToActivity(activityContext: Context, attachTo: ViewGroup) {
@@ -581,7 +604,85 @@ internal class RetainedGeckoSurface internal constructor(
         detachContextToApplication()
         session.setActive(true)
         session.setFocused(false)
-        return geckoView.parent === container
+        val attached = geckoView.parent === container
+        if (attached) {
+            scheduleOverlayFreeze()
+        }
+        return attached
+    }
+
+    /**
+     * 悬浮球只显示页面左上角一小块裁剪，实时表面会让合成器在后台继续整页绘制动画（实测 GPU 满载）。
+     * 抓快照替换实时表面：TextureView 随摘除销毁 surface，合成停帧；session 保持 active，
+     * JS/定时器/流式生成不受影响，回到前台重新挂回表面即恢复实时画面。
+     * 迁移瞬间 overlay 窗口尚未 addView、旧 Activity surface 已销毁，截图必须等窗口首帧后再试。
+     */
+    private fun scheduleOverlayFreeze() {
+        overlayFreezeAttempts = 0
+        overlayFreezeHandler.removeCallbacks(overlayFreezeRunnable)
+        overlayFreezeHandler.postDelayed(overlayFreezeRunnable, OVERLAY_FREEZE_DELAY_MS)
+    }
+
+    private fun attemptOverlayFreeze(container: ViewGroup) {
+        val result = runCatching { geckoView.capturePixels() }.getOrNull()
+        if (result == null) {
+            retryOverlayFreeze(container)
+            return
+        }
+        result.accept({ bitmap ->
+            if (overlayContainer !== container || geckoView.parent !== container) {
+                bitmap?.recycle()
+            } else if (bitmap != null && !bitmap.isRecycled) {
+                showOverlaySnapshot(container, bitmap)
+            } else {
+                retryOverlayFreeze(container)
+            }
+        }, {
+            if (overlayContainer === container && geckoView.parent === container) {
+                retryOverlayFreeze(container)
+            }
+        })
+    }
+
+    private fun retryOverlayFreeze(container: ViewGroup) {
+        overlayFreezeAttempts += 1
+        if (overlayFreezeAttempts < OVERLAY_FREEZE_MAX_ATTEMPTS) {
+            overlayFreezeHandler.postDelayed(overlayFreezeRunnable, OVERLAY_FREEZE_RETRY_MS)
+        } else {
+            // 截图始终失败时退回上一张快照；从未抓到过就保持实时表面（旧行为）。
+            showOverlaySnapshot(container, overlaySnapshotBitmap)
+        }
+    }
+
+    private fun cancelOverlayFreeze() {
+        overlayFreezeHandler.removeCallbacks(overlayFreezeRunnable)
+    }
+
+    private fun showOverlaySnapshot(container: ViewGroup, bitmap: Bitmap?) {
+        if (bitmap == null || bitmap.isRecycled) {
+            return
+        }
+        clearOverlaySnapshot()
+        if (overlaySnapshotBitmap !== bitmap) {
+            overlaySnapshotBitmap?.recycle()
+            overlaySnapshotBitmap = bitmap
+        }
+        val snapshot = ImageView(contextWrapper).apply {
+            layoutParams = ViewGroup.LayoutParams(bitmap.width, bitmap.height)
+            // 与实时表面一致：1:1 呈现页面左上角裁剪，不做缩放。
+            scaleType = ImageView.ScaleType.MATRIX
+            setImageBitmap(bitmap)
+        }
+        container.addView(snapshot, 0)
+        overlaySnapshotView = snapshot
+        // 摘除实时表面（不 setActive(false)），TextureView surface 销毁后合成器停帧。
+        container.removeView(geckoView)
+    }
+
+    private fun clearOverlaySnapshot() {
+        val snapshot = overlaySnapshotView ?: return
+        (snapshot.parent as? ViewGroup)?.removeView(snapshot)
+        overlaySnapshotView = null
     }
 
     /** 仅在仍有存活 Activity 容器时恢复 GeckoView。 */
@@ -590,6 +691,8 @@ internal class RetainedGeckoSurface internal constructor(
             activityContainer = null
             return false
         }
+        cancelOverlayFreeze()
+        clearOverlaySnapshot()
         contextWrapper.baseContext = target.context
         geckoView.layoutParams = matchParentLayoutParams()
         moveViewToParent(geckoView, target, index = 0)
@@ -603,6 +706,8 @@ internal class RetainedGeckoSurface internal constructor(
     /** 无 Activity 可恢复时从 overlay 根节点摘下 GeckoView，并暂停不可见 session。 */
     override fun detachFromOverlay(): Boolean {
         val currentOverlay = overlayContainer
+        cancelOverlayFreeze()
+        clearOverlaySnapshot()
         if (currentOverlay != null && geckoView.parent === currentOverlay) {
             currentOverlay.removeView(geckoView)
         }
@@ -624,6 +729,10 @@ internal class RetainedGeckoSurface internal constructor(
 
     /** 真正释放 Gecko 资源，仅用于内核切换、renderer gone 或进程级强制重建。 */
     override fun destroy() {
+        cancelOverlayFreeze()
+        clearOverlaySnapshot()
+        overlaySnapshotBitmap?.recycle()
+        overlaySnapshotBitmap = null
         runCatching { session.stop() }
         runCatching { session.setActive(false) }
         runCatching { session.setFocused(false) }
