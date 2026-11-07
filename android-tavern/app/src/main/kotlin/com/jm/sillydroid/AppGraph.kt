@@ -20,6 +20,8 @@ import com.jm.sillydroid.data.runtime.BootRuntimeConfigRepository
 import com.jm.sillydroid.data.runtime.DefaultHostProcessManager
 import com.jm.sillydroid.data.runtime.HostExtensionDirectoriesProvider
 import com.jm.sillydroid.data.runtime.HostExtensionCommandRunner
+import com.jm.sillydroid.data.runtime.HostNetworkHealer
+import com.jm.sillydroid.data.runtime.TavernUpdateRunnerImpl
 import com.jm.sillydroid.data.settings.BootstrapHostConfigStore
 import com.jm.sillydroid.data.settings.TavernConfigRepository
 import com.jm.sillydroid.data.settings.TavernDataArchiveManager
@@ -39,6 +41,7 @@ import com.jm.sillydroid.domain.runtime.RuntimeLogManager
 import com.jm.sillydroid.domain.settings.DataArchiveRepository
 import com.jm.sillydroid.domain.settings.HostPreferencesRepository
 import com.jm.sillydroid.domain.settings.SettingsConfigRepository
+import com.jm.sillydroid.domain.tavernupdate.TavernUpdateRunner
 import com.jm.sillydroid.domain.update.AppUpdateRepository
 import com.jm.sillydroid.domain.update.AppUpdateStateRepository
 
@@ -133,6 +136,15 @@ class AppGraph(
             hostVersion = BuildConfig.SILLYDROID_HOST_VERSION,
             upstreamVersion = BuildConfig.SILLYDROID_UPSTREAM_VERSION
         )
+    }
+
+    override val tavernUpdateRunner: TavernUpdateRunner by lazy {
+        TavernUpdateRunnerImpl(application, runtimeLogManager, networkHealer)
+    }
+
+    /** 网络切换自愈：Wi-Fi 断连重连后华为等 ROM 的 netd DNS 通道会卡死，这里负责刷新。 */
+    val networkHealer: HostNetworkHealer by lazy {
+        HostNetworkHealer(application)
     }
 
     private val extensionsLocalDataSource: ExtensionsLocalDataSource by lazy {

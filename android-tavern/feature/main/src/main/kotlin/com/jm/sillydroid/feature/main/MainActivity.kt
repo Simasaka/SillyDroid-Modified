@@ -1,14 +1,17 @@
 package com.jm.sillydroid.feature.main
 
 import android.app.ActivityManager
+import android.app.NotificationManager
 import android.content.res.Configuration
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.Process
 import android.provider.Settings
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.annotation.ColorInt
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResultLauncher
@@ -101,6 +104,18 @@ class MainActivity : AppCompatActivity() {
     private var lastWebViewNavigationBarColorHex: String? = null
     private var feedbackImageFloatingBrowserSuppression: AutoCloseable? = null
 
+    /**
+     * 本次 Activity 创建时采用的表面类型（true=内置浏览器，false=纯后台模式）。
+     *
+     * browserHost 只在 onCreate 里按当时的模式配置一次，所以「后台模式 → 内置浏览器」
+     * 这种设置变更必须靠重建 Activity 才能生效；否则主界面会一直停在占位状态，
+     * 内置浏览器永远不会自己回来。
+     */
+    private var webViewSurfaceAtCreate: Boolean = true
+
+    /** 待处理的「打开日志面板」请求（来自后台模式的服务状态球）。 */
+    private var pendingOpenLogs: Boolean = false
+
     private val feedbackImageLauncher = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         releaseFeedbackImageFloatingBrowserSuppression()
         if (::floatingLogsHost.isInitialized) {
@@ -151,6 +166,10 @@ class MainActivity : AppCompatActivity() {
         installSystemUi()
         installBrowserStack()
         installBootstrapWiring()
+        // 记下本次创建采用的表面类型，供 onStart 比对设置变更。
+        webViewSurfaceAtCreate = shouldUseWebViewSurface()
+        // 从后台模式的服务状态球进入时，进来就展开日志。
+        pendingOpenLogs = intent?.getBooleanExtra(FloatingBrowserService.EXTRA_OPEN_LOGS, false) == true
         if (shouldUseWebViewSurface()) {
             inspectWebViewRuntimeBeforeBootstrap()
         }
@@ -187,6 +206,7 @@ class MainActivity : AppCompatActivity() {
             canOpenSettings = { snapshot -> bootstrapOverlayHost.canOpenBootstrapSettings(snapshot) },
             openSettings = { bootstrapOverlayHost.openBootstrapSettings() },
             openCurrentPageInBrowser = { browserHost.openCurrentPageInExternalBrowser() },
+            onRequestFullExit = ::performFullExit,
             reloadTavernWebView = { browserHost.reloadTavernWebView(source = "floating_logs_button") },
             applyBrowserZoomPercent = ::applyBrowserZoomPercentFromFloatingLogs,
             applyBrowserPageZoomPercent = ::applyBrowserPageZoomPercentFromFloatingLogs,
@@ -262,9 +282,23 @@ class MainActivity : AppCompatActivity() {
     /** 主界面可见前恢复同一浏览器表面，并按最新权限决定是否预热悬浮服务。 */
     override fun onStart() {
         super.onStart()
+        // 表面类型（后台模式 ↔ 内置浏览器）变了就必须重建：
+        // browserHost 只在本 Activity 的 onCreate 里配置一次，不重建的话
+        // 关闭后台模式后主界面仍然停在占位状态，内置浏览器不会自己回来。
+        if (webViewSurfaceAtCreate != shouldUseWebViewSurface()) {
+            recordActivityLifecycleDiagnostic(
+                event = "surface_mode_changed",
+                extra = "fromWebView=$webViewSurfaceAtCreate toWebView=${shouldUseWebViewSurface()} action=recreate"
+            )
+            recreate()
+            return
+        }
         floatingBrowserRuntime.coordinator.restoreToActivity()
         synchronizeFloatingBrowserPermission()
-        if (shouldPrepareFloatingBrowser()) {
+        // 后台模式：不提供内置浏览器，但仍保留一个「服务状态球」，
+        // 让用户在系统浏览器里用酒馆时也能一眼看到服务在跑、点一下回来看日志。
+        val backgroundStatusBall = !shouldUseWebViewSurface() && Settings.canDrawOverlays(this)
+        if (shouldPrepareFloatingBrowser() || backgroundStatusBall) {
             runCatching { FloatingBrowserService.prepare(applicationContext) }
                 .onFailure { error ->
                     recordDefaultHostDiagnostic(
@@ -281,6 +315,11 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         reapplyCurrentSystemBars()
         floatingLogsHost.refreshVisibility()
+        // 从后台模式的状态球点进来时，直接把日志面板展开。
+        if (pendingOpenLogs) {
+            pendingOpenLogs = false
+            runCatching { floatingLogsHost.showBubble() }
+        }
         if (shouldUseWebViewSurface()) {
             browserHost.updateRefreshLayoutEnabled()
         }
@@ -337,6 +376,9 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (intent.getBooleanExtra(FloatingBrowserService.EXTRA_OPEN_LOGS, false)) {
+            pendingOpenLogs = true
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -694,6 +736,64 @@ class MainActivity : AppCompatActivity() {
                     recordDefaultHostDiagnostic(category = category, body = body)
                 }
             )
+        }
+    }
+
+    /**
+     * 「结束服务并退出」：按 悬浮球 → Node 会话 → 前台服务 → 通知 → 界面/进程 的顺序收干净。
+     *
+     * 单纯 finish() 只关界面，StartupCoordinatorService 会带着常驻通知继续留在后台。
+     * 这里复用设置页重启时用的 stopForSettingsAndAwait：它走 ACTION_STOP_FOR_SETTINGS，
+     * 服务侧会停 Node、移除通知、stopForeground(STOP_FOREGROUND_REMOVE)、stopSelf() 且返回
+     * START_NOT_STICKY，因此不会被系统自动拉起。必须先停完再关界面，顺序反了会被
+     * 生命周期回调重新拉起服务。
+     */
+    private fun performFullExit() {
+        lifecycleScope.launch {
+            recordDefaultHostDiagnostic(category = "browser", body = "event=full_exit_started")
+            // 1. 收掉悬浮球与它的 overlay 窗口。
+            runCatching { FloatingBrowserService.stop(this@MainActivity) }
+            // 2. 停 Node 后端、前台服务与常驻通知；等待过程放到 IO 线程，避免卡主线程。
+            val stoppedCleanly = withContext(appGraph.dispatchers.io) {
+                runCatching {
+                    processManager.stopForSettingsAndAwait(
+                        getString(R.string.floating_logs_full_exit_stop_timeout)
+                    )
+                }.isSuccess
+            }
+            // 3. 显式停掉前台服务。stopForSettingsAndAwait 只等「Node 会话停止」，
+            // 不等 StartupCoordinatorService 自己走完 stopSelf()；此时若直接杀进程，
+            // 系统会按上一次 START_STICKY 把服务重新拉起，常驻通知又回来。
+            // stopService 会同步把 ServiceRecord 标记为已停止，避免这个复活。
+            runCatching {
+                stopService(Intent(this@MainActivity, FloatingBrowserService::class.java))
+                stopService(
+                    Intent().setClassName(
+                        this@MainActivity,
+                        "com.jm.sillydroid.data.runtime.StartupCoordinatorService"
+                    )
+                )
+            }
+            // 4. 清掉前台通知及其它残留通知，避免服务已停但通知栏还挂着。
+            runCatching { getSystemService(NotificationManager::class.java)?.cancelAll() }
+            recordDefaultHostDiagnostic(
+                category = "browser",
+                body = "event=full_exit_service_stopped cleanly=$stoppedCleanly"
+            )
+            if (!stoppedCleanly) {
+                // 服务没确认停止时不要强杀进程：若最后一次 onStartCommand 仍是 START_STICKY，
+                // 杀进程反而会让系统把服务重新拉起，表现为「退出了又自己回来」。
+                Toast.makeText(
+                    this@MainActivity,
+                    R.string.floating_logs_full_exit_stop_timeout,
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            // 5. 服务与通知都收干净后再关界面、移除最近任务并清掉后台进程。
+            finishAndRemoveTask()
+            if (stoppedCleanly) {
+                Process.killProcess(Process.myPid())
+            }
         }
     }
 

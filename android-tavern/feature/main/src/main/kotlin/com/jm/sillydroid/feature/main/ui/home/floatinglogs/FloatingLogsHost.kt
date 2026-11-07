@@ -32,6 +32,7 @@ class FloatingLogsHost(
     private val canOpenSettings: (BootstrapSessionSnapshot) -> Boolean,
     private val openSettings: () -> Unit,
     private val openCurrentPageInBrowser: () -> Boolean,
+    private val onRequestFullExit: () -> Unit,
     private val reloadTavernWebView: () -> Boolean,
     private val applyBrowserZoomPercent: (Int) -> Boolean,
     private val applyBrowserPageZoomPercent: (Int) -> Boolean,
@@ -59,6 +60,7 @@ class FloatingLogsHost(
     private val openSettingsButton: MaterialButton = activity.findViewById(R.id.floatingLogsOpenSettingsButton)
     private val openBrowserButton: MaterialButton = activity.findViewById(R.id.floatingLogsOpenBrowserButton)
     private val feedbackButton: MaterialButton = activity.findViewById(R.id.floatingLogsFeedbackButton)
+    private val fullExitButton: MaterialButton = activity.findViewById(R.id.floatingLogsFullExitButton)
     private val scrollToBottomButton: ImageButton = activity.findViewById(R.id.floatingLogsScrollToBottomButton)
 
     private val layoutController: FloatingLogsLayoutController by lazy {
@@ -106,6 +108,7 @@ class FloatingLogsHost(
                 openSettingsButton = openSettingsButton,
                 openBrowserButton = openBrowserButton,
                 feedbackButton = feedbackButton,
+                fullExitButton = fullExitButton,
                 scrollToBottomButton = scrollToBottomButton
             ),
             text = FloatingLogsText(
@@ -151,6 +154,7 @@ class FloatingLogsHost(
             canOpenSettings = canOpenSettings,
             openSettings = openSettings,
             openCurrentPageInBrowser = openCurrentPageInBrowser,
+            onRequestFullExit = onRequestFullExit,
             reloadTavernWebView = reloadTavernWebView,
             applyBrowserZoomPercent = applyBrowserZoomPercent,
             applyBrowserPageZoomPercent = applyBrowserPageZoomPercent,

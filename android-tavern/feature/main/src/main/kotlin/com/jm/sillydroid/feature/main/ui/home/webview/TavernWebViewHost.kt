@@ -31,6 +31,7 @@ import androidx.core.view.isVisible
 import androidx.webkit.WebViewCompat
 import com.jm.sillydroid.core.model.bootstrap.BootstrapSessionSnapshot
 import com.jm.sillydroid.core.model.settings.BrowserEngine
+import com.jm.sillydroid.core.ui.browser.ExternalBrowserLauncher
 import com.jm.sillydroid.core.model.settings.BrowserDataClearOptions
 import com.jm.sillydroid.core.model.settings.BrowserDataClearTarget
 import com.jm.sillydroid.core.model.settings.BrowserZoomOptions
@@ -600,12 +601,11 @@ class TavernWebViewHost(
 
     private fun launchExternalBrowser(targetUri: Uri): Boolean {
         return try {
-            activity.startActivity(
-                Intent(Intent.ACTION_VIEW, targetUri).apply {
-                    addCategory(Intent.CATEGORY_BROWSABLE)
-                }
-            )
-            true
+            val launched = ExternalBrowserLauncher.launch(activity, targetUri)
+            if (!launched) {
+                showOpenExternalBrowserFailure()
+            }
+            launched
         } catch (_: ActivityNotFoundException) {
             showOpenExternalBrowserFailure()
             false

@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Message
+import android.view.View
 import android.webkit.ConsoleMessage
 import android.webkit.HttpAuthHandler
 import android.webkit.RenderProcessGoneDetail
@@ -92,6 +93,12 @@ class HomeWebViewController(
         // 降低后台被回收后切回前台白屏 / renderer gone 的概率（内置 WebView 与 App 共享内存预算，
         // 不像独立浏览器有单独的进程内存 headroom，这一项能直接缩小体感差距）。
         webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
+
+        // 渲染性能微调。注意这里不能调用 setLayerType(LAYER_TYPE_HARDWARE)：WebView 自己管理
+        // 绘制层，强制硬件层会把整页内容先渲成一张纹理，页面缩放时线性采样会让文字明显发虚，
+        // 同时增加一整屏的显存开销。保持默认 LAYER_TYPE_NONE 由 WebView 自行决定即可。
+        webView.settings.offscreenPreRaster = true
+        webView.overScrollMode = View.OVER_SCROLL_NEVER
 
         installDocumentStartScripts()
         installJavascriptInterfaces(webView)

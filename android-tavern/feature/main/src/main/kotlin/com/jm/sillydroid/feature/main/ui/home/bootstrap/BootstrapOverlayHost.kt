@@ -133,8 +133,28 @@ class BootstrapOverlayHost(
         }
         render(currentSnapshot)
         if (result.resultCode == Activity.RESULT_OK && shouldReloadTavernUiFromSettingsResult(result.data)) {
-            browserHost.reloadTavernUiIfPossible(currentSnapshot)
+            // 换了酒馆版本后前端资源整体变了。服务可能还在重启，这里先记成待办：
+            // ready 时立刻刷新成功就清掉，没 ready 就等 overlay 收起、浏览器表面重新可见时补一次。
+            homeViewModel.pendingTavernUiReload = true
+            tryPendingTavernUiReload(currentSnapshot)
         }
+    }
+
+    /**
+     * 执行一次「因设置变更需要刷新酒馆前端」的刷新。
+     *
+     * 只有 bootstrap 已 ready、且浏览器表面确实可见时才真正刷；否则保留待办，
+     * 由后续 snapshot 变化继续尝试。返回 true 表示已发出刷新。
+     */
+    private fun tryPendingTavernUiReload(snapshot: BootstrapSessionSnapshot): Boolean {
+        if (!homeViewModel.pendingTavernUiReload || !snapshot.isReady) {
+            return false
+        }
+        val reloaded = browserHost.reloadTavernWebView(source = "settings_tavern_source_changed")
+        if (reloaded) {
+            homeViewModel.pendingTavernUiReload = false
+        }
+        return reloaded
     }
 
     fun installAppUpdateCoordinator() {
@@ -163,6 +183,9 @@ class BootstrapOverlayHost(
     fun render(snapshot: BootstrapSessionSnapshot) {
         floatingLogsHost.renderSessionSummary(snapshot)
         renderer.render(snapshot)
+        // renderer 在 ready 时才会收起 overlay 并显示浏览器表面，
+        // 所以待办的刷新必须放在它后面尝试，否则会被"表面不可见"挡掉。
+        tryPendingTavernUiReload(snapshot)
     }
 
     fun observe() {

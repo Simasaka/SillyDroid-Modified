@@ -150,11 +150,133 @@ class BootstrapSettingsQuickActionsController(
                 }
             )
         }
+        // 后台运行权限：后台模式下应用完全在后台，能否联网由系统的后台管理策略决定。
+        // 这里不试图「对抗」系统策略（实测前台服务也压不住国产 ROM），
+        // 只把状态摊开 + 提供一键跳转，让用户自己放行一次。
+        val backgroundExempt = isIgnoringBatteryOptimizations()
+        rootView.addView(
+            MaterialCardView(activity).apply {
+                radius = activity.resources.getDimension(R.dimen.sillydroid_nested_card_radius)
+                cardElevation = 0f
+                strokeWidth = dp(1)
+                strokeColor = resolveThemeColor(MaterialR.attr.colorOutlineVariant)
+                setCardBackgroundColor(resolveThemeColor(MaterialR.attr.colorSurfaceContainerLow))
+                isClickable = true
+                isFocusable = true
+                foreground = activity.getDrawable(resolveThemeResource(android.R.attr.selectableItemBackground))
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = dimen(R.dimen.sillydroid_space_sm)
+                }
+                addView(
+                    LinearLayout(activity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(
+                            dimen(R.dimen.sillydroid_panel_padding),
+                            dimen(R.dimen.sillydroid_panel_padding),
+                            dimen(R.dimen.sillydroid_panel_padding),
+                            dimen(R.dimen.sillydroid_panel_padding)
+                        )
+                        addView(
+                            TextView(activity).apply {
+                                text = activity.getString(R.string.bootstrap_settings_quick_actions_background_title)
+                                TextViewCompat.setTextAppearance(this, R.style.TextAppearance_SillyDroid_SettingsCardTitle)
+                                setTextColor(resolveThemeColor(MaterialR.attr.colorOnSurface))
+                            }
+                        )
+                        addView(
+                            TextView(activity).apply {
+                                text = activity.getString(
+                                    if (backgroundExempt) {
+                                        R.string.bootstrap_settings_quick_actions_background_summary_ok
+                                    } else {
+                                        R.string.bootstrap_settings_quick_actions_background_summary_warn
+                                    }
+                                )
+                                TextViewCompat.setTextAppearance(this, R.style.TextAppearance_SillyDroid_SettingsBody)
+                                setTextColor(resolveThemeColor(MaterialR.attr.colorOnSurfaceVariant))
+                                setPadding(0, dimen(R.dimen.sillydroid_space_xs_half), 0, 0)
+                            }
+                        )
+                    }
+                )
+                setOnClickListener { showBackgroundRunGuide() }
+            }
+        )
         return QuickActionsContent(
             rootView = rootView,
             lanAccessCard = lanAccessCard,
             lanAccessSwitch = lanAccessSwitch
         )
+    }
+
+    /** 是否已获得电池优化豁免；拿不到 PowerManager 时按「未豁免」处理，宁可多提示一次。 */
+    private fun isIgnoringBatteryOptimizations(): Boolean {
+        val powerManager = activity.getSystemService(android.os.PowerManager::class.java) ?: return false
+        return runCatching { powerManager.isIgnoringBatteryOptimizations(activity.packageName) }.getOrDefault(false)
+    }
+
+    private fun showBackgroundRunGuide() {
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.bootstrap_settings_quick_actions_background_dialog_title)
+            .setMessage(R.string.bootstrap_settings_quick_actions_background_dialog_message)
+            .setPositiveButton(R.string.bootstrap_settings_quick_actions_background_open_startup) { _, _ ->
+                openStartupManager()
+            }
+            .setNeutralButton(R.string.bootstrap_settings_quick_actions_background_open_battery) { _, _ ->
+                openBatteryOptimizationSettings()
+            }
+            .setNegativeButton(R.string.bootstrap_settings_import_confirm_cancel, null)
+            .show()
+    }
+
+    /** 优先打开国产 ROM 的「应用启动管理」页，失败再回退到应用详情页。 */
+    private fun openStartupManager() {
+        val candidates = listOf(
+            android.content.Intent().apply {
+                component = android.content.ComponentName(
+                    "com.huawei.systemmanager",
+                    "com.huawei.systemmanager.optimize.process.ProtectActivity"
+                )
+            },
+            android.content.Intent().apply {
+                component = android.content.ComponentName(
+                    "com.hihonor.systemmanager",
+                    "com.hihonor.systemmanager.optimize.process.ProtectActivity"
+                )
+            },
+            android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = android.net.Uri.fromParts("package", activity.packageName, null)
+            }
+        )
+        if (launchFirstAvailable(candidates)) {
+            return
+        }
+        showMessage(activity.getString(R.string.bootstrap_settings_quick_actions_background_open_failed))
+    }
+
+    private fun openBatteryOptimizationSettings() {
+        val candidates = listOf(
+            android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = android.net.Uri.fromParts("package", activity.packageName, null)
+            },
+            android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        )
+        if (launchFirstAvailable(candidates)) {
+            return
+        }
+        showMessage(activity.getString(R.string.bootstrap_settings_quick_actions_background_open_failed))
+    }
+
+    private fun launchFirstAvailable(intents: List<android.content.Intent>): Boolean {
+        for (intent in intents) {
+            if (runCatching { activity.startActivity(intent) }.isSuccess) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun setLanAccessEnabled(targetEnabled: Boolean) {

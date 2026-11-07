@@ -509,6 +509,24 @@
                         android:layout_height="wrap_content"
                         android:text="@string/floating_logs_feedback_button" />
                 </LinearLayout>
+
+                <!-- 彻底退出是破坏当前会话的操作，单独占一行并用 error 色强调，避免与其它按钮挤在一起误触。 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/sillydroid_space_sm"
+                    android:gravity="start|center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/floatingLogsFullExitButton"
+                        style="@style/Widget.SillyDroid.FloatingLogsCompactButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/floating_logs_full_exit_button"
+                        android:textColor="?attr/colorError"
+                        app:strokeColor="?attr/colorError" />
+                </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

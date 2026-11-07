@@ -39,7 +39,12 @@ class AppUpdateCoordinator(
     private val dispatchers: DispatcherProvider,
     private val hostDownloadNotificationCoordinator: HostDownloadNotificationCoordinator,
     private val overlayUi: OverlayUi? = null,
-    private val aboutUi: AboutUi? = null
+    private val aboutUi: AboutUi? = null,
+    /**
+     * 是否允许拉取原上游 APK 进行自更新。本 fork 改为通过「酒馆版本更新」就地升级 SillyTavern，
+     * 因此默认关闭上游 APK 自更新，避免覆盖掉 fork 的适配工作。
+     */
+    val upstreamUpdateEnabled: Boolean = false
 ) : DefaultLifecycleObserver {
     data class OverlayUi(
         val container: View,
@@ -101,6 +106,10 @@ class AppUpdateCoordinator(
     }
 
     private suspend fun handleUpdateAction() {
+        if (!upstreamUpdateEnabled) {
+            showMessage(R.string.app_update_disabled_message)
+            return
+        }
         syncCachedReleaseDownloadState(verifyCompleteApk = false)
         val currentDownload = appUpdateRepository.cachedDownloadState()
         if (currentDownload != null) {
@@ -157,6 +166,9 @@ class AppUpdateCoordinator(
     }
 
     private suspend fun checkForUpdates(silent: Boolean): Boolean {
+        if (!upstreamUpdateEnabled) {
+            return false
+        }
         val result = withContext(dispatchers.io) {
             runCatching {
                 appUpdateRepository.fetchLatestAvailableRelease(
@@ -363,6 +375,11 @@ class AppUpdateCoordinator(
 
         aboutUi?.let { ui ->
             val aboutVersionInfo = resolveAboutVersionInfo()
+            if (!upstreamUpdateEnabled) {
+                ui.statusView.text = activity.getString(R.string.app_update_disabled_status)
+                ui.actionButton.isEnabled = false
+                return@let
+            }
             val checkErrorMessage = appUpdateRepository.checkErrorMessage
             ui.versionView.text = buildString {
                 append(activity.getString(R.string.bootstrap_settings_about_version_apk, aboutVersionInfo.apkVersionName))

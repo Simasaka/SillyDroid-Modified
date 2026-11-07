@@ -24,6 +24,8 @@ import android.view.WindowManager
 import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.jm.sillydroid.core.model.settings.FloatingBrowserPosition
 import com.jm.sillydroid.domain.app.SillyDroidAppGraphProvider
@@ -58,7 +60,15 @@ internal fun executeFloatingBrowserReturn(
  */
 class FloatingBrowserService : Service() {
     companion object {
+        /** 悬浮球上挂 WebView 的容器 tag；状态球模式没有这个容器。 */
+        private const val BROWSER_CONTAINER_TAG = "sillydroid.browserContainer"
+
+        /** 主界面收到这个 extra 时自动展开日志面板。 */
+        const val EXTRA_OPEN_LOGS = "com.jm.sillydroid.extra.OPEN_LOGS"
+
         private const val DOCK_ANIMATION_DURATION_MS = 220L
+        private const val DOUBLE_TAP_WINDOW_MS = 320L
+        private const val LOGS_REFRESH_INTERVAL_MS = 1_500L
         private const val OVERLAY_PERMISSION_CHECK_INTERVAL_MS = 1_000L
         private const val OVERLAY_VISIBILITY_DIAGNOSTIC_DELAY_MS = 250L
         private const val ACTION_PREPARE = "com.jm.sillydroid.action.FLOATING_BROWSER_PREPARE"
@@ -133,6 +143,21 @@ class FloatingBrowserService : Service() {
     private val keyguardManager by lazy { getSystemService(KeyguardManager::class.java) }
     private var overlayRoot: FrameLayout? = null
     private var overlayLayoutParams: WindowManager.LayoutParams? = null
+
+    /**
+     * 是否为「服务状态球」模式。
+     *
+     * 后台模式不提供内置浏览器，但保留一个可见悬浮球：只显示图标，
+     * 不承载 WebView，点击回到 App 并展开日志。
+     */
+    private var statusOnlyMode: Boolean = false
+
+    /** 后台模式日志浮层：就地显示服务日志，不把用户从系统浏览器里带走。 */
+    private var logsPanelView: View? = null
+    private var logsPanelParams: WindowManager.LayoutParams? = null
+    private var logsPanelBody: TextView? = null
+    private var logsRefreshRunnable: Runnable? = null
+    private var lastBubbleTapAt: Long = 0L
     private var dockAnimator: ValueAnimator? = null
     private var receiverRegistered = false
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -204,12 +229,19 @@ class FloatingBrowserService : Service() {
         if (overlayRoot != null || appGraph.appForegroundState.isInForeground) {
             return
         }
-        if (!preferences.floatingBrowserEnabled || !preferences.launchWebViewOnReady) {
+        // 后台模式（launchWebViewOnReady=false）下不承载浏览器，只显示「服务状态球」：
+        // 后台模式把页面交给系统浏览器，此时仍让用户有一个可见入口——
+        // 一眼看到服务在跑、点一下回到 App 看日志。
+        // 注意：后台模式下 floatingBrowserEnabled 是被禁用的开关，这里不能拿它当条件。
+        statusOnlyMode = !preferences.launchWebViewOnReady
+        if (!statusOnlyMode && !preferences.floatingBrowserEnabled) {
             stopSelf()
             return
         }
         if (!Settings.canDrawOverlays(this)) {
-            disableAfterWindowFailure()
+            if (!statusOnlyMode) {
+                disableAfterWindowFailure()
+            }
             return
         }
         if (!isScreenAvailable() || floatingBrowserRuntime.suppressionRegistry.isSuppressed()) {
@@ -220,8 +252,10 @@ class FloatingBrowserService : Service() {
         }
 
         val root = buildOverlayRoot()
-        val browserContainer = root.getChildAt(0) as FrameLayout
-        if (!floatingBrowserRuntime.coordinator.attachToOverlay(browserContainer)) {
+        val browserContainer = root.findViewWithTag<FrameLayout>(BROWSER_CONTAINER_TAG)
+        if (browserContainer != null &&
+            !floatingBrowserRuntime.coordinator.attachToOverlay(browserContainer)
+        ) {
             return
         }
         val layoutParams = buildOverlayLayoutParams()
@@ -233,8 +267,10 @@ class FloatingBrowserService : Service() {
                 scheduleOverlayVisibilityDiagnostic(root)
             }
             .onFailure {
-                floatingBrowserRuntime.coordinator.restoreToActivity()
-                disableAfterWindowFailure()
+                if (!statusOnlyMode) {
+                    floatingBrowserRuntime.coordinator.restoreToActivity()
+                    disableAfterWindowFailure()
+                }
             }
     }
 
@@ -243,6 +279,8 @@ class FloatingBrowserService : Service() {
         dockAnimator?.cancel()
         dockAnimator = null
         mainHandler.removeCallbacks(overlayPermissionCheck)
+        // 球没了，日志浮层也要一起收掉，否则会留在屏幕上没有入口。
+        hideLogsPanel()
         if (restoreToActivity) {
             val restored = floatingBrowserRuntime.coordinator.restoreToActivity()
             if (!restored) {
@@ -273,8 +311,12 @@ class FloatingBrowserService : Service() {
             layoutParams = FrameLayout.LayoutParams(size, size)
             clipChildren = true
             clipToPadding = true
+            tag = BROWSER_CONTAINER_TAG
         }
-        root.addView(browserContainer)
+        // 状态球模式只留图标，不挂浏览器画面。
+        if (!statusOnlyMode) {
+            root.addView(browserContainer)
+        }
         val touchShield = ImageView(this).apply {
             layoutParams = FrameLayout.LayoutParams(size, size)
             setBackgroundResource(R.drawable.bg_floating_browser_touch_shield)
@@ -283,6 +325,9 @@ class FloatingBrowserService : Service() {
             val padding = resources.getDimensionPixelSize(R.dimen.sillydroid_floating_browser_icon_padding)
             setPadding(padding, padding, padding, padding)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
+            if (statusOnlyMode) {
+                contentDescription = getString(R.string.floating_browser_status_bubble_description)
+            }
         }
         installBubbleTouch(touchShield)
         root.addView(touchShield)
@@ -327,7 +372,7 @@ class FloatingBrowserService : Service() {
                         if (dragging) {
                             dockAndPersistOverlayPosition()
                         } else {
-                            restoreMainActivity()
+                            handleBubbleTap()
                         }
                         return true
                     }
@@ -412,6 +457,146 @@ class FloatingBrowserService : Service() {
     }
 
     /** 点击悬浮球时在窗口仍可见的用户手势期间启动主界面，再恢复同一浏览器表面并移除窗口。 */
+    /**
+     * 悬浮球点击。
+     *
+     * 后台模式：单击就地展开日志浮层（**不离开正在用的系统浏览器**），双击才回到 App。
+     * 内置浏览器模式：保持原有行为——单击直接把浏览器画面带回 Activity。
+     */
+    private fun handleBubbleTap() {
+        if (!statusOnlyMode) {
+            restoreMainActivity()
+            return
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastBubbleTapAt <= DOUBLE_TAP_WINDOW_MS) {
+            lastBubbleTapAt = 0L
+            hideLogsPanel()
+            restoreMainActivity()
+            return
+        }
+        lastBubbleTapAt = now
+        toggleLogsPanel()
+    }
+
+    /** 展开/收起日志浮层；展开时每 1.5 秒刷新一次尾部内容。 */
+    private fun toggleLogsPanel() {
+        if (logsPanelView != null) {
+            hideLogsPanel()
+            return
+        }
+        showLogsPanel()
+    }
+
+    private fun showLogsPanel() {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            // 完全不透明：日志要能读，不能透出背后的网页正文。
+            setBackgroundColor(0xFF1C1B1F.toInt())
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        val title = TextView(this).apply {
+            text = getString(R.string.floating_browser_status_logs_title)
+            setTextColor(0xFFEDE7F6.toInt())
+            textSize = 13f
+        }
+        val body = TextView(this).apply {
+            setTextColor(0xFFBDBDBD.toInt())
+            textSize = 10f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setTextIsSelectable(true)
+        }
+        val scroll = android.widget.ScrollView(this).apply {
+            addView(body)
+        }
+        panel.addView(
+            title,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(6) }
+        )
+        panel.addView(
+            scroll,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        )
+
+        val metrics = resources.displayMetrics
+        val params = WindowManager.LayoutParams(
+            (metrics.widthPixels * 0.88f).toInt(),
+            (metrics.heightPixels * 0.45f).toInt(),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            },
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.OPAQUE
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = dp(16)
+            y = (metrics.heightPixels * 0.18f).toInt()
+        }
+
+        val added = runCatching { windowManager.addView(panel, params) }.isSuccess
+        if (!added) {
+            return
+        }
+        logsPanelView = panel
+        logsPanelParams = params
+        logsPanelBody = body
+
+        val refresh = object : Runnable {
+            override fun run() {
+                if (logsPanelView == null) {
+                    return
+                }
+                logsPanelBody?.text = readServerLogTail()
+                mainHandler.postDelayed(this, LOGS_REFRESH_INTERVAL_MS)
+            }
+        }
+        logsRefreshRunnable = refresh
+        mainHandler.post(refresh)
+    }
+
+    private fun hideLogsPanel() {
+        logsRefreshRunnable?.let(mainHandler::removeCallbacks)
+        logsRefreshRunnable = null
+        logsPanelBody = null
+        logsPanelView?.let { panel -> runCatching { windowManager.removeViewImmediate(panel) } }
+        logsPanelView = null
+        logsPanelParams = null
+    }
+
+    /** 读取最新的酒馆服务日志尾部；任何异常都返回可读提示，绝不让浮层崩掉。 */
+    private fun readServerLogTail(maxLines: Int = 200, maxBytes: Long = 128 * 1024): String {
+        return runCatching {
+            // 与 data:runtime 的 resolveHostLogsDir 保持一致（这里不引那层依赖）。
+            val logsDir = java.io.File(filesDir, "android-tavern/logs")
+            val newest = logsDir.listFiles { file ->
+                file.isFile && file.name.startsWith("sillydroid-server-")
+            }?.maxByOrNull { it.lastModified() }
+                ?: return@runCatching getString(R.string.floating_browser_status_logs_empty)
+
+            val length = newest.length()
+            val start = (length - maxBytes).coerceAtLeast(0L)
+            val text = java.io.RandomAccessFile(newest, "r").use { raf ->
+                raf.seek(start)
+                val buffer = ByteArray((length - start).toInt())
+                raf.readFully(buffer)
+                String(buffer, Charsets.UTF_8)
+            }
+            val lines = text.lineSequence().drop(if (start > 0) 1 else 0).toList()
+            lines.takeLast(maxLines).joinToString("\n").ifBlank {
+                getString(R.string.floating_browser_status_logs_empty)
+            }
+        }.getOrElse { getString(R.string.floating_browser_status_logs_empty) }
+    }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
+
     private fun restoreMainActivity() {
         executeFloatingBrowserReturn(
             launchMainActivity = {
@@ -423,13 +608,17 @@ class FloatingBrowserService : Service() {
                                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
                                     Intent.FLAG_ACTIVITY_SINGLE_TOP
                             )
+                            // 状态球模式点一下就直接展开日志面板，省掉再去点悬浮球。
+                            if (statusOnlyMode) {
+                                putExtra(EXTRA_OPEN_LOGS, true)
+                            }
                         }
                     )
                     true
                 }.getOrDefault(false)
             },
-            hideOverlay = { hideOverlay(restoreToActivity = true) },
-            stopService = { stopSelf() }
+            hideOverlay = { hideOverlay(restoreToActivity = !statusOnlyMode) },
+            stopService = { if (!statusOnlyMode) stopSelf() }
         )
     }
 

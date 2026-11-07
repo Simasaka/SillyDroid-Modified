@@ -17,10 +17,13 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.jm.sillydroid.core.model.bootstrap.BootstrapSessionSnapshot
 import com.jm.sillydroid.core.model.settings.BrowserDataClearOptions
+import com.jm.sillydroid.core.ui.browser.ExternalBrowserLauncher
 import com.jm.sillydroid.core.model.settings.BrowserDataClearTarget
 import com.jm.sillydroid.core.model.settings.BrowserEngine
 import com.jm.sillydroid.core.model.settings.BrowserZoomOptions
@@ -144,6 +147,18 @@ class TavernGeckoViewHost(
         get() = "${browserEngine.name}:${System.identityHashCode(session)}"
     private var browserSurfaceDestroyed = false
 
+    init {
+        // GeckoView 不会跟随 Android 的输入法 insets：键盘弹起时窗口虽然被 adjustResize 压缩，
+        // Gecko 侧仍按原高度排版，固定在底部的输入框会被键盘盖住。
+        // setVerticalClipping 告诉 Gecko 底部被遮挡的高度（正值表示被裁掉），它会重新计算可视区，
+        // 页面里的 100vh / 底部定位元素随之调整，输入框就能浮到键盘上方。
+        ViewCompat.setOnApplyWindowInsetsListener(geckoView) { _, insets ->
+            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            geckoView.setVerticalClipping(imeBottom)
+            insets
+        }
+    }
+
     override fun currentBrowserRuntimeInfo(): BrowserRuntimeInfo {
         val coreVersion = GeckoBuildConfig.GRE_MILESTONE.trim()
             .ifBlank { GeckoBuildConfig.MOZILLA_VERSION.trim() }
@@ -167,7 +182,9 @@ class TavernGeckoViewHost(
     }
 
     override fun currentBrowserPageZoomPercent(): Int {
-        return BrowserZoomOptions.sanitizeViewportDensity(hostConfigStore.browserPageZoomPercent)
+        // GeckoView 的界面密度靠改写 layout viewport 宽度实现，非 100% 会撑破酒馆输入栏、
+        // 并让 IME insets 跟随失效。这里恒定 100%，缩放统一交给 fontSizeFactor（字体缩放）。
+        return BrowserZoomOptions.MAX_VIEWPORT_DENSITY_PERCENT
     }
 
     override fun configure() {
@@ -211,7 +228,9 @@ class TavernGeckoViewHost(
     }
 
     override fun setBrowserPageZoomPercent(percent: Int): Boolean {
-        val sanitizedPercent = BrowserZoomOptions.sanitizeViewportDensity(percent)
+        // 与 currentBrowserPageZoomPercent 保持一致：GeckoView 忽略宿主里给系统 WebView
+        // 保存的界面密度值，始终按 100% 复位 viewport，避免输入栏横向溢出。
+        val sanitizedPercent = BrowserZoomOptions.MAX_VIEWPORT_DENSITY_PERCENT
         val baseViewportWidthCssPx = resolveGeckoBaseViewportWidthCssPx()
         val requested = bridgeInstaller.requestViewportDensityPercent(
             percent = sanitizedPercent,
@@ -223,6 +242,7 @@ class TavernGeckoViewHost(
                 append("event=browser_viewport_density_requested")
                 append(" engine=${browserEngine.name}")
                 append(" percent=$sanitizedPercent")
+                append(" ignoredHostPercent=${BrowserZoomOptions.sanitizeViewportDensity(percent)}")
                 append(" baseViewportWidthCssPx=$baseViewportWidthCssPx")
                 append(" requested=$requested")
             }
@@ -1074,12 +1094,11 @@ class TavernGeckoViewHost(
 
     private fun launchExternalBrowser(targetUri: Uri): Boolean {
         return try {
-            activity.startActivity(
-                Intent(Intent.ACTION_VIEW, targetUri).apply {
-                    addCategory(Intent.CATEGORY_BROWSABLE)
-                }
-            )
-            true
+            val launched = ExternalBrowserLauncher.launch(activity, targetUri)
+            if (!launched) {
+                showOpenExternalBrowserFailure()
+            }
+            launched
         } catch (_: ActivityNotFoundException) {
             showOpenExternalBrowserFailure()
             false

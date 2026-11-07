@@ -44,6 +44,14 @@ class HomeViewModel(
     var isOpeningBootstrapSettings: Boolean = false
     var isPullGestureRefreshing: Boolean = false
     var isImeVisible: Boolean = false
+    /**
+     * 从设置页换了酒馆版本（或改了会换前端资源的东西）后置为 true。
+     *
+     * 服务重启期间用户可能已经退回主界面，此时 snapshot 还没 ready，无法立刻刷新；
+     * 这里记一个待办，等 bootstrap 真正 ready、浏览器表面重新可见时再统一刷新一次，
+     * 否则用户会一直看到更新前的旧页面，必须手动下拉刷新才会切过去。
+     */
+    var pendingTavernUiReload: Boolean = false
     var backgroundOnlyExternalBrowserAttemptKey: String = ""
     private var pendingWebViewRendererCrashBrowserEngineHint: Boolean = false
     private var pendingWebViewDocumentStartUnsupportedHint: Boolean = false

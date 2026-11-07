@@ -10,6 +10,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import com.jm.sillydroid.core.model.bootstrap.BootstrapSessionSnapshot
 import com.jm.sillydroid.core.model.settings.BrowserEngine
+import com.jm.sillydroid.core.ui.browser.ExternalBrowserLauncher
 import com.jm.sillydroid.feature.main.R
 import com.jm.sillydroid.feature.main.diagnostics.normalizeDiagnosticValue
 
@@ -116,12 +117,11 @@ class DisabledBrowserHost(
 
     private fun launchExternalBrowser(targetUri: Uri): Boolean {
         return try {
-            activity.startActivity(
-                Intent(Intent.ACTION_VIEW, targetUri).apply {
-                    addCategory(Intent.CATEGORY_BROWSABLE)
-                }
-            )
-            true
+            val launched = ExternalBrowserLauncher.launch(activity, targetUri)
+            if (!launched) {
+                Toast.makeText(activity, R.string.browser_open_external_failed, Toast.LENGTH_SHORT).show()
+            }
+            launched
         } catch (_: ActivityNotFoundException) {
             Toast.makeText(activity, R.string.browser_open_external_failed, Toast.LENGTH_SHORT).show()
             false

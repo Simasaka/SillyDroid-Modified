@@ -20,15 +20,19 @@ import androidx.core.view.WindowCompat
 import androidx.core.widget.doAfterTextChanged
 import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.R as MaterialR
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.DynamicColors
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import com.jm.sillydroid.core.ui.browser.ExternalBrowserLauncher
+import com.jm.sillydroid.core.ui.browser.ExternalBrowserMode
 import com.jm.sillydroid.core.ui.window.SystemBarAppearanceController
 import com.jm.sillydroid.core.model.bootstrap.shouldPreferTavernServerLog
 import com.jm.sillydroid.core.model.settings.HostDisplayMode
@@ -146,6 +150,8 @@ class BootstrapSettingsActivity : AppCompatActivity() {
     private lateinit var pullRefreshSwitch: MaterialSwitch
     private lateinit var browserEngineRow: View
     private lateinit var browserEngineValueView: TextView
+    private lateinit var externalBrowserRow: View
+    private lateinit var externalBrowserValueView: TextView
     private lateinit var nodeMemoryLimitRow: View
     private lateinit var nodeMemoryLimitValueView: TextView
     private lateinit var nodeNewSpaceLimitRow: View
@@ -202,6 +208,17 @@ class BootstrapSettingsActivity : AppCompatActivity() {
     private lateinit var clearDataButton: MaterialButton
     private lateinit var clearBrowserDataButton: MaterialButton
     private lateinit var saveStartButton: MaterialButton
+    private lateinit var tavernUpdateVersionInput: TextInputEditText
+    private lateinit var tavernUpdateButton: MaterialButton
+    private lateinit var tavernUpdateLocalButton: MaterialButton
+    private lateinit var tavernUpdateProgress: android.widget.ProgressBar
+    private lateinit var tavernUpdateStatus: TextView
+    private lateinit var tavernUpdateCurrentVersionView: TextView
+    private lateinit var tavernUpdateNetworkLineView: TextView
+    private lateinit var tavernUpdateNetworkRetryButton: MaterialButton
+    private lateinit var tavernUpdateVersionsButton: MaterialButton
+    private lateinit var tavernUpdateVersionsHintView: TextView
+    private lateinit var tavernUpdateVersionsContainer: LinearLayout
 
     private val appGraph: SillyDroidAppGraph
         get() = (application as SillyDroidAppGraphProvider).sillyDroidAppGraph
@@ -282,6 +299,7 @@ class BootstrapSettingsActivity : AppCompatActivity() {
         applySettingsSurfaceSystemBars()
         bindViews()
         initializeControllers()
+        setupExternalBrowserRow()
         stateController.initialize()
         aboutController.initialize()
         screenController.initialize()
@@ -359,6 +377,7 @@ class BootstrapSettingsActivity : AppCompatActivity() {
         quickActionsButton.setOnClickListener {
             quickActionsController.showQuickActionsMenu()
         }
+        setupTavernUpdateUi()
 
         // 设置页仍然等真实配置异步回填，但“启动端口”先放默认值占位，避免首屏出现空白洞。
         formController.renderStartupPortPlaceholder()
@@ -430,6 +449,8 @@ class BootstrapSettingsActivity : AppCompatActivity() {
         pullRefreshSwitch = findViewById(R.id.bootstrapSettingsPullRefreshSwitch)
         browserEngineRow = findViewById(R.id.bootstrapSettingsBrowserEngineRow)
         browserEngineValueView = findViewById(R.id.bootstrapSettingsBrowserEngineValue)
+        externalBrowserRow = findViewById(R.id.bootstrapSettingsExternalBrowserRow)
+        externalBrowserValueView = findViewById(R.id.bootstrapSettingsExternalBrowserValue)
         nodeMemoryLimitRow = findViewById(R.id.bootstrapSettingsNodeMemoryLimitRow)
         nodeMemoryLimitValueView = findViewById(R.id.bootstrapSettingsNodeMemoryLimitValue)
         nodeNewSpaceLimitRow = findViewById(R.id.bootstrapSettingsNodeNewSpaceLimitRow)
@@ -486,6 +507,331 @@ class BootstrapSettingsActivity : AppCompatActivity() {
         clearDataButton = findViewById(R.id.bootstrapSettingsClearDataButton)
         clearBrowserDataButton = findViewById(R.id.bootstrapSettingsClearBrowserDataButton)
         saveStartButton = findViewById(R.id.bootstrapSettingsSaveButton)
+        tavernUpdateVersionInput = findViewById(R.id.bootstrapSettingsTavernUpdateVersionInput)
+        tavernUpdateButton = findViewById(R.id.bootstrapSettingsTavernUpdateButton)
+        tavernUpdateLocalButton = findViewById(R.id.bootstrapSettingsTavernUpdateLocalButton)
+        tavernUpdateProgress = findViewById(R.id.bootstrapSettingsTavernUpdateProgress)
+        tavernUpdateStatus = findViewById(R.id.bootstrapSettingsTavernUpdateStatus)
+        tavernUpdateCurrentVersionView = findViewById(R.id.bootstrapSettingsTavernUpdateCurrentVersion)
+        tavernUpdateNetworkLineView = findViewById(R.id.bootstrapSettingsTavernUpdateNetworkLine)
+        tavernUpdateNetworkRetryButton = findViewById(R.id.bootstrapSettingsTavernUpdateNetworkRetryButton)
+        tavernUpdateVersionsButton = findViewById(R.id.bootstrapSettingsTavernUpdateVersionsButton)
+        tavernUpdateVersionsHintView = findViewById(R.id.bootstrapSettingsTavernUpdateVersionsHint)
+        tavernUpdateVersionsContainer = findViewById(R.id.bootstrapSettingsTavernUpdateVersionsContainer)
+    }
+
+    /**
+     * 外部浏览器偏好走独立 SharedPreferences：切换它不影响酒馆服务，无需重启，
+     * 所以不必并入 ViewModel 的 UiState 与「保存并重启」流程。
+     */
+    private fun setupExternalBrowserRow() {
+        fun label(mode: ExternalBrowserMode): String = when (mode) {
+            ExternalBrowserMode.ASK -> getString(R.string.bootstrap_settings_external_browser_ask)
+            ExternalBrowserMode.FIREFOX -> getString(R.string.bootstrap_settings_external_browser_firefox)
+            ExternalBrowserMode.SYSTEM_DEFAULT -> getString(R.string.bootstrap_settings_external_browser_system)
+        }
+
+        fun refreshValue() {
+            externalBrowserValueView.text = label(ExternalBrowserLauncher.currentMode(this))
+        }
+
+        refreshValue()
+        externalBrowserRow.setOnClickListener {
+            val modes = ExternalBrowserMode.entries.toTypedArray()
+            val checkedItem = modes.indexOf(ExternalBrowserLauncher.currentMode(this)).coerceAtLeast(0)
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.bootstrap_settings_external_browser_dialog_title)
+                .setSingleChoiceItems(modes.map(::label).toTypedArray(), checkedItem) { dialog, which ->
+                    val selected = modes[which]
+                    if (selected == ExternalBrowserMode.FIREFOX &&
+                        !ExternalBrowserLauncher.isFirefoxAvailable(this)
+                    ) {
+                        Toast.makeText(
+                            this,
+                            R.string.bootstrap_settings_external_browser_firefox_missing,
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        ExternalBrowserLauncher.setMode(this, selected)
+                        refreshValue()
+                    }
+                    dialog.dismiss()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    /**
+     * 设置页「酒馆版本更新」卡片：手动从 GitHub 拉取指定版本（或最新版）覆盖服务源码，
+     * 复用 Termux host runtime，过程中保留用户数据与 config.yaml。更新前会先停止服务。
+     */
+    private fun setupTavernUpdateUi() {
+        tavernUpdateButton.setOnClickListener {
+            val ref = tavernUpdateVersionInput.text?.toString()?.trim().orEmpty().takeIf { it.isNotBlank() }
+            tavernUpdateVersionInput.clearFocus()
+            startTavernUpdate(ref)
+        }
+        tavernUpdateLocalButton.setOnClickListener {
+            startTavernReinstall()
+        }
+        tavernUpdateNetworkRetryButton.setOnClickListener {
+            probeTavernNetwork()
+        }
+        tavernUpdateVersionsButton.setOnClickListener {
+            loadTavernVersions()
+        }
+        refreshTavernCurrentVersion()
+    }
+
+    /** 读取并显示当前已安装的版本号。 */
+    private fun refreshTavernCurrentVersion() {
+        val version = appGraph.tavernUpdateRunner.currentVersion()
+        tavernUpdateCurrentVersionView.text = if (version.isNullOrBlank()) {
+            getString(R.string.bootstrap_settings_tavern_update_current_version_unknown)
+        } else {
+            getString(R.string.bootstrap_settings_tavern_update_current_version, version)
+        }
+    }
+
+    /**
+     * 探测当前网络实际能走通的下载线路（GitHub 原站 / 国内镜像）并显示。
+     * 只发网络请求，不停服。
+     */
+    private fun probeTavernNetwork() {
+        if (!tavernUpdateNetworkRetryButton.isEnabled) return
+        tavernUpdateNetworkRetryButton.isEnabled = false
+        tavernUpdateNetworkLineView.text = getString(R.string.bootstrap_settings_tavern_update_network_detecting)
+        lifecycleScope.launch {
+            val probe = try {
+                appGraph.tavernUpdateRunner.probeNetwork()
+            } catch (exception: Exception) {
+                null
+            }
+            runOnUiThread {
+                tavernUpdateNetworkRetryButton.isEnabled = true
+                if (probe == null) {
+                    tavernUpdateNetworkLineView.text =
+                        getString(R.string.bootstrap_settings_tavern_update_network_probe_failed)
+                } else if (!probe.dnsResolved) {
+                    // 宿主 DNS 都解析不出域名：网络切换后 netd 的 DNS 通道卡死，
+                    // 这时重试线路没有意义，需要提示用户刷新网络 / 重启 App。
+                    tavernUpdateNetworkLineView.text =
+                        getString(R.string.bootstrap_settings_tavern_update_network_dns_broken)
+                } else if (!probe.reachable) {
+                    tavernUpdateNetworkLineView.text =
+                        getString(R.string.bootstrap_settings_tavern_update_network_unreachable)
+                } else {
+                    val label = when (probe.workingLine) {
+                        "github" -> "GitHub 原站"
+                        "ghproxy" -> "国内镜像 ghproxy"
+                        "mirror.ghproxy" -> "国内镜像 mirror.ghproxy"
+                        "gh.api.99988866" -> "国内镜像 gh.api.99988866"
+                        else -> probe.workingLine
+                    }
+                    tavernUpdateNetworkLineView.text =
+                        getString(R.string.bootstrap_settings_tavern_update_network_line, label)
+                    // 探测到最新版本时，如果用户没手动填版本，就提示一下可更新到哪个版本
+                    if (probe.latestTag.isNotBlank()) {
+                        tavernUpdateVersionsHintView.visibility = View.VISIBLE
+                        tavernUpdateVersionsHintView.text = getString(
+                            R.string.bootstrap_settings_tavern_update_versions_hint
+                        )
+                    }
+                }
+                // Node 侧 DNS 诊断：宿主能解析但服务里的 Node 不能时，这里能直接看出差异。
+                if (probe != null && probe.nodeDiagnostic.isNotBlank()) {
+                    tavernUpdateVersionsHintView.visibility = View.VISIBLE
+                    tavernUpdateVersionsHintView.text = probe.nodeDiagnostic
+                }
+            }
+        }
+    }
+
+    /**
+     * 拉取可安装版本列表并渲染；点击某个版本即把它填入版本输入框（可再点「检查并更新」执行回退）。
+     */
+    private fun loadTavernVersions() {
+        if (!tavernUpdateVersionsButton.isEnabled) return
+        tavernUpdateVersionsButton.isEnabled = false
+        tavernUpdateVersionsHintView.visibility = View.VISIBLE
+        tavernUpdateVersionsHintView.text = getString(R.string.bootstrap_settings_tavern_update_versions_loading)
+        lifecycleScope.launch {
+            val list = try {
+                appGraph.tavernUpdateRunner.listVersions()
+            } catch (exception: Exception) {
+                null
+            }
+            runOnUiThread {
+                tavernUpdateVersionsButton.isEnabled = true
+                tavernUpdateVersionsContainer.removeAllViews()
+                if (list == null || !list.success || list.versions.isEmpty()) {
+                    tavernUpdateVersionsHintView.text =
+                        getString(R.string.bootstrap_settings_tavern_update_versions_failed)
+                    tavernUpdateVersionsHintView.visibility = View.VISIBLE
+                    return@runOnUiThread
+                }
+                tavernUpdateVersionsHintView.text = getString(R.string.bootstrap_settings_tavern_update_versions_hint)
+                tavernUpdateVersionsHintView.visibility = View.VISIBLE
+                tavernUpdateVersionsContainer.visibility = View.VISIBLE
+                list.versions.forEach { version ->
+                    val item = MaterialButton(
+                        this@BootstrapSettingsActivity,
+                        null,
+                        MaterialR.attr.materialButtonOutlinedStyle
+                    ).apply {
+                        text = version
+                        isAllCaps = false
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply { topMargin = resources.getDimensionPixelSize(R.dimen.sillydroid_space_xxxs) }
+                        setOnClickListener {
+                            tavernUpdateVersionInput.setText(version)
+                            tavernUpdateVersionInput.clearFocus()
+                            screenController.showMessage(
+                                getString(R.string.bootstrap_settings_tavern_update_version_picked, version)
+                            )
+                        }
+                    }
+                    tavernUpdateVersionsContainer.addView(item)
+                }
+            }
+        }
+    }
+
+    private fun setTavernUpdateControlsEnabled(enabled: Boolean) {
+        tavernUpdateButton.isEnabled = enabled
+        tavernUpdateLocalButton.isEnabled = enabled
+        tavernUpdateVersionInput.isEnabled = enabled
+        tavernUpdateNetworkRetryButton.isEnabled = enabled
+        tavernUpdateVersionsButton.isEnabled = enabled
+    }
+
+    private fun showTavernUpdateProgress(percent: Int, message: String) {
+        tavernUpdateProgress.visibility = View.VISIBLE
+        tavernUpdateProgress.progress = percent.coerceIn(0, 100)
+        tavernUpdateStatus.visibility = View.VISIBLE
+        tavernUpdateStatus.text = message
+    }
+
+    private fun startTavernUpdate(targetRef: String?) {
+        if (!tavernUpdateButton.isEnabled) return
+        screenController.showMessage(getString(R.string.bootstrap_settings_tavern_update_running))
+        setTavernUpdateControlsEnabled(false)
+        screenController.setBusy(true)
+        tavernUpdateProgress.visibility = View.VISIBLE
+        tavernUpdateProgress.progress = 0
+        tavernUpdateStatus.visibility = View.VISIBLE
+        tavernUpdateStatus.text = getString(R.string.bootstrap_settings_tavern_update_running)
+        lifecycleScope.launch {
+            try {
+                // 目标版本就是当前版本时直接返回：连服务都不用停，更不会白下载一遍。
+                // 留空（=latest）无法在这里判定，交给脚本在解析出远端最新版后自行比较。
+                val installedVersion = appGraph.tavernUpdateRunner.currentVersion()
+                val explicitRef = targetRef?.takeIf { it.isNotBlank() && it != "latest" }
+                if (explicitRef != null && installedVersion != null && explicitRef == installedVersion) {
+                    val msg = getString(
+                        R.string.bootstrap_settings_tavern_update_already_latest,
+                        installedVersion
+                    )
+                    tavernUpdateStatus.text = msg
+                    screenController.showMessage(msg)
+                    return@launch
+                }
+
+                processManager.stopForSettingsAndAwait(getString(R.string.bootstrap_settings_tavern_update_stopping))
+                val result = appGraph.tavernUpdateRunner.runUpdate(targetRef, "auto") { percent, message ->
+                    runOnUiThread { showTavernUpdateProgress(percent, message) }
+                }
+                runOnUiThread {
+                    if (result.success) {
+                        // 用实际安装后的版本号，而不是用户输入的内容：
+                        // 输入 "latest" 时，只有读回来才知道到底装成了哪个版本。
+                        val resolved = appGraph.tavernUpdateRunner.currentVersion()
+                            ?: targetRef
+                            ?: "latest"
+                        val ok = if (result.alreadyUpToDate) {
+                            getString(R.string.bootstrap_settings_tavern_update_already_latest, resolved)
+                        } else {
+                            getString(R.string.bootstrap_settings_tavern_update_success, resolved)
+                        }
+                        tavernUpdateStatus.text = ok
+                        screenController.showMessage(ok)
+                        refreshTavernCurrentVersion()
+                        processManager.restart()
+                        if (!result.alreadyUpToDate) {
+                            // 换了版本 → 前端资源整套变了，必须让主界面重新加载页面。
+                            // 只置位不够：服务重启期间用户可能已经退回主界面，
+                            // 主界面会把这个请求记成待办，等 ready 后再补一次刷新。
+                            updateResultFlags(shouldReloadTavernUi = true)
+                        }
+                    } else {
+                        val msg = getString(R.string.bootstrap_settings_tavern_update_failed, result.message)
+                        tavernUpdateStatus.text = msg
+                        screenController.showMessage(msg)
+                        // 失败时脚本已经把旧版本搬回来了，这里必须把服务重新拉起来，
+                        // 否则主界面会一直停在「本地服务已暂停」。
+                        processManager.restart()
+                    }
+                }
+            } catch (exception: Exception) {
+                runOnUiThread {
+                    val msg = getString(R.string.bootstrap_settings_tavern_update_failed, exception.message ?: "")
+                    tavernUpdateStatus.text = msg
+                    screenController.showMessage(msg)
+                }
+            } finally {
+                runOnUiThread {
+                    setTavernUpdateControlsEnabled(true)
+                    screenController.setBusy(false)
+                }
+            }
+        }
+    }
+
+    private fun startTavernReinstall() {
+        if (!tavernUpdateLocalButton.isEnabled) return
+        screenController.showMessage(getString(R.string.bootstrap_settings_tavern_update_running))
+        setTavernUpdateControlsEnabled(false)
+        screenController.setBusy(true)
+        tavernUpdateProgress.visibility = View.VISIBLE
+        tavernUpdateProgress.progress = 0
+        tavernUpdateStatus.visibility = View.VISIBLE
+        tavernUpdateStatus.text = getString(R.string.bootstrap_settings_tavern_update_running)
+        lifecycleScope.launch {
+            try {
+                processManager.stopForSettingsAndAwait(getString(R.string.bootstrap_settings_tavern_update_stopping))
+                val result = appGraph.tavernUpdateRunner.reinstallDependencies { percent, message ->
+                    runOnUiThread { showTavernUpdateProgress(percent, message) }
+                }
+                runOnUiThread {
+                    if (result.success) {
+                        val ok = getString(R.string.bootstrap_settings_tavern_update_npm_success)
+                        tavernUpdateStatus.text = ok
+                        screenController.showMessage(ok)
+                        processManager.restart()
+                    } else {
+                        val msg = getString(R.string.bootstrap_settings_tavern_update_npm_failed, result.message)
+                        tavernUpdateStatus.text = msg
+                        screenController.showMessage(msg)
+                        // 同上：失败也要把服务恢复起来。
+                        processManager.restart()
+                    }
+                }
+            } catch (exception: Exception) {
+                runOnUiThread {
+                    val msg = getString(R.string.bootstrap_settings_tavern_update_npm_failed, exception.message ?: "")
+                    tavernUpdateStatus.text = msg
+                    screenController.showMessage(msg)
+                }
+            } finally {
+                runOnUiThread {
+                    setTavernUpdateControlsEnabled(true)
+                    screenController.setBusy(false)
+                }
+            }
+        }
     }
 
     private fun initializeControllers() {

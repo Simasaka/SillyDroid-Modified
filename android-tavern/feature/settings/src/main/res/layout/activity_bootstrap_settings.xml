@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/bootstrapSettingsRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -654,6 +655,59 @@
                         </com.google.android.material.card.MaterialCardView>
 
                         <com.google.android.material.card.MaterialCardView
+                            android:id="@+id/bootstrapSettingsExternalBrowserRow"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/sillydroid_space_md"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:foreground="?attr/selectableItemBackground">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal"
+                                android:paddingStart="@dimen/sillydroid_panel_padding"
+                                android:paddingTop="@dimen/sillydroid_panel_padding"
+                                android:paddingEnd="@dimen/sillydroid_panel_padding"
+                                android:paddingBottom="@dimen/sillydroid_panel_padding">
+
+                                <LinearLayout
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        style="@style/TextAppearance.SillyDroid.SettingsCardTitle"
+                                        android:layout_width="match_parent"
+                                        android:layout_height="wrap_content"
+                                        android:text="@string/bootstrap_settings_external_browser_title"
+                                        android:textColor="?attr/colorOnSurface"
+                                        android:textStyle="bold" />
+
+                                    <TextView
+                                        style="@style/TextAppearance.SillyDroid.SettingsBody"
+                                        android:layout_width="match_parent"
+                                        android:layout_height="wrap_content"
+                                        android:layout_marginTop="@dimen/sillydroid_space_xs_half"
+                                        android:text="@string/bootstrap_settings_external_browser_summary"
+                                        android:textColor="?attr/colorOnSurfaceVariant" />
+                                </LinearLayout>
+
+                                <TextView
+                                    android:id="@+id/bootstrapSettingsExternalBrowserValue"
+                                    style="@style/TextAppearance.SillyDroid.SettingsBody"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="@dimen/sillydroid_space_md"
+                                    android:textColor="?attr/colorPrimary"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+                        </com.google.android.material.card.MaterialCardView>
+
+                        <com.google.android.material.card.MaterialCardView
                             android:id="@+id/bootstrapSettingsRuntimePatchRow"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -1089,6 +1143,165 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical" />
+
+                <com.google.android.material.card.MaterialCardView
+                    style="@style/Widget.SillyDroid.SettingsPanelCard"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/sillydroid_space_md">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingStart="@dimen/sillydroid_panel_padding"
+                        android:paddingTop="@dimen/sillydroid_panel_padding"
+                        android:paddingEnd="@dimen/sillydroid_panel_padding"
+                        android:paddingBottom="@dimen/sillydroid_panel_padding">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/bootstrap_settings_tavern_update_title"
+                            style="@style/TextAppearance.SillyDroid.SettingsCardTitle" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/sillydroid_space_xxxs"
+                            android:layout_marginBottom="@dimen/sillydroid_space_sm"
+                            android:text="@string/bootstrap_settings_tavern_update_summary"
+                            style="@style/TextAppearance.SillyDroid.SettingsBody" />
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Widget.SillyDroid.SettingsTextInputLayout.OutlinedBox"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/bootstrap_settings_tavern_update_version_hint">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/bootstrapSettingsTavernUpdateVersionInput"
+                                style="@style/Widget.SillyDroid.SettingsTextInputEditText"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="text"
+                                android:maxLines="1"
+                                android:minHeight="@dimen/sillydroid_input_min_height" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/sillydroid_space_sm"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/bootstrapSettingsTavernUpdateButton"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="@string/bootstrap_settings_tavern_update_action" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/bootstrapSettingsTavernUpdateLocalButton"
+                                style="@style/Widget.SillyDroid.SettingsButton.Outlined"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="@dimen/sillydroid_space_sm"
+                                android:layout_weight="1"
+                                android:text="@string/bootstrap_settings_tavern_update_local_action" />
+                        </LinearLayout>
+
+                        <ProgressBar
+                            android:id="@+id/bootstrapSettingsTavernUpdateProgress"
+                            style="?android:attr/progressBarStyleHorizontal"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/sillydroid_space_sm"
+                            android:max="100"
+                            android:progress="0"
+                            android:visibility="gone" />
+
+                        <TextView
+                            android:id="@+id/bootstrapSettingsTavernUpdateStatus"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/sillydroid_space_xs"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="11sp"
+                            android:visibility="gone" />
+
+                        <!-- 当前版本 + 当前网络线路 -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/sillydroid_space_sm"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:id="@+id/bootstrapSettingsTavernUpdateCurrentVersion"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                android:textSize="12sp"
+                                tools:ignore="HardcodedText" />
+
+                            <TextView
+                                android:id="@+id/bootstrapSettingsTavernUpdateNetworkLine"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:gravity="end"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                android:textSize="12sp"
+                                tools:ignore="HardcodedText" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/sillydroid_space_xs"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/bootstrapSettingsTavernUpdateNetworkRetryButton"
+                                style="@style/Widget.SillyDroid.SettingsButton.Outlined"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="@string/bootstrap_settings_tavern_update_network_retry" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/bootstrapSettingsTavernUpdateVersionsButton"
+                                style="@style/Widget.SillyDroid.SettingsButton.Outlined"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="@dimen/sillydroid_space_sm"
+                                android:layout_weight="1"
+                                android:text="@string/bootstrap_settings_tavern_update_versions_load" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/bootstrapSettingsTavernUpdateVersionsHint"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/sillydroid_space_xs"
+                            android:text="@string/bootstrap_settings_tavern_update_versions_hint"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="11sp"
+                            android:visibility="gone" />
+
+                        <!-- 可安装版本列表：点选即回退 -->
+                        <LinearLayout
+                            android:id="@+id/bootstrapSettingsTavernUpdateVersionsContainer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/sillydroid_space_xs"
+                            android:orientation="vertical"
+                            android:visibility="gone" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
 
             <LinearLayout

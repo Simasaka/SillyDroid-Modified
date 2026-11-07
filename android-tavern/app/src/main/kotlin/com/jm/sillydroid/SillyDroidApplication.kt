@@ -152,13 +152,18 @@ class SillyDroidApplication : Application(),
         if (appGraph.appForegroundState.isInForeground) {
             return
         }
-        if (!appGraph.hostConfigStore.launchWebViewOnReady || !appGraph.hostConfigStore.floatingBrowserEnabled) {
+        // 后台模式下不承载浏览器，但保留一个「服务状态球」作为可见入口。
+        val backgroundMode = !appGraph.hostConfigStore.launchWebViewOnReady
+        if (!backgroundMode && !appGraph.hostConfigStore.floatingBrowserEnabled) {
             FloatingBrowserService.stop(applicationContext)
             return
         }
         if (!Settings.canDrawOverlays(this)) {
-            appGraph.hostConfigStore.floatingBrowserEnabled = false
-            recordFloatingBrowserDiagnostic("event=permission_revoked action=disable_feature source=application_background")
+            // 后台模式不动用户的内置浏览器开关，只是这次不显示球。
+            if (!backgroundMode) {
+                appGraph.hostConfigStore.floatingBrowserEnabled = false
+                recordFloatingBrowserDiagnostic("event=permission_revoked action=disable_feature source=application_background")
+            }
             FloatingBrowserService.stop(applicationContext)
             return
         }

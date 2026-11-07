@@ -1,5 +1,23 @@
 # SillyDroid Android
 
+> **这是 [jialmaster/SillyDroid](https://github.com/jialmaster/SillyDroid) 的个人 Fork**，基线 `master` @ `725b5938ab`。
+> 保留上游完整构建链，新增运行时升级 / 回退 SillyTavern、后台状态悬浮球、外部浏览器选择等能力，并修复 GeckoView 输入框跟随键盘、界面密度缩放破版、后台模式切换不恢复等宿主问题。逐条明细见改动说明。
+> 上游 APK 自更新已禁用，避免覆盖本 Fork 的宿主适配。许可沿用上游 **PolyForm Noncommercial 1.0.0**。
+
+| 文档 | 内容 |
+| --- | --- |
+| [改动与修复明细](docs/CHANGES.md) | 相对原版新增了什么、修好了什么；逐条列出对应文件、原因与实测结果 |
+| [参考来源](docs/REFERENCES.md) | 代码基线、上游构建链约束与设计参考项目 |
+
+> **署名说明**：本 Fork 全部新增功能（代码、脚本、界面文案与文档）均由 AI 助手依据使用需求生成、调试与整理，用户本人未编写代码；需求描述、真机验证与最终决策由用户完成。上游原有代码、构建链与许可归原作者所有。
+>
+> **隐私说明**：本仓库不含设备运行时数据，自定义白名单 IP、浏览器 localStorage、角色卡与聊天记录均未纳入版本控制。
+
+> 以下为上游原始 README，未经删改。
+
+---
+
+
 [![APK Action](https://img.shields.io/github/actions/workflow/status/jialmaster/SillyDroid/sillydroid-upstream-apk.yml?label=SillyDroid%20APK)](https://github.com/jialmaster/SillyDroid/actions/workflows/sillydroid-upstream-apk.yml)
 [![Runtime Release Tag](https://img.shields.io/badge/Runtime%20Release%20Tag-tavern--runtime--linux--arm64-2563eb)](https://github.com/jialmaster/SillyDroid/releases/tag/tavern-runtime-linux-arm64)
 [![Latest Release](https://img.shields.io/github/v/release/jialmaster/SillyDroid?display_name=tag&label=SillyDroid%20Version)](https://github.com/jialmaster/SillyDroid/releases)

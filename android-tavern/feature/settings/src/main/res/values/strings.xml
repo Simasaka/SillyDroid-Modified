@@ -19,6 +19,13 @@
     <string name="bootstrap_settings_host_browser_engine_dialog_title">选择浏览器引擎</string>
     <string name="bootstrap_settings_host_browser_engine_system_webview">系统 WebView</string>
     <string name="bootstrap_settings_host_browser_engine_geckoview">GeckoView（实验）</string>
+    <string name="bootstrap_settings_external_browser_title">外部浏览器</string>
+    <string name="bootstrap_settings_external_browser_summary">后台模式或点「在浏览器打开」时用哪个浏览器。默认每次弹选择器，不会被系统默认浏览器劫持。</string>
+    <string name="bootstrap_settings_external_browser_dialog_title">选择外部浏览器</string>
+    <string name="bootstrap_settings_external_browser_ask">每次询问（选择器）</string>
+    <string name="bootstrap_settings_external_browser_firefox">固定用 Firefox</string>
+    <string name="bootstrap_settings_external_browser_system">跟随系统默认浏览器</string>
+    <string name="bootstrap_settings_external_browser_firefox_missing">未检测到 Firefox，请先安装或改用「每次询问」</string>
     <string name="bootstrap_settings_host_runtime_patch_title">酒馆性能优化（实验）</string>
     <string name="bootstrap_settings_host_runtime_patch_summary">这是酒馆补丁，非官方功能，且未经过验证，酒馆更新后可能失效，请谨慎开启。</string>
     <string name="bootstrap_settings_host_runtime_patch_restart_hint">酒馆性能优化已更新，重启服务后生效。</string>
@@ -111,6 +118,16 @@
     <string name="bootstrap_settings_quick_actions_lan_wifi_ip_missing">当前没有获取到可用的 Wi‑Fi IPv4 地址，无法自动补齐局域网白名单。</string>
     <string name="bootstrap_settings_quick_actions_lan_whitelist_missing">缺少 IP 白名单字段，无法自动配置局域网访问。</string>
     <string name="bootstrap_settings_quick_actions_lan_invalid_network">当前 Wi‑Fi IPv4 地址无效，无法自动推断局域网白名单。</string>
+
+    <!-- 后台运行权限：后台模式下能否稳定联网取决于系统是否允许本应用后台活动，这里只做状态展示与跳转。 -->
+    <string name="bootstrap_settings_quick_actions_background_title">后台运行权限</string>
+    <string name="bootstrap_settings_quick_actions_background_summary_ok">已获得电池优化豁免。若后台仍连不上（国产 ROM 常见），请把本应用设为「手动管理」并允许后台活动。</string>
+    <string name="bootstrap_settings_quick_actions_background_summary_warn">当前受系统后台限制：后台模式下可能出现「手机浏览器打不开酒馆」「电脑局域网连不上」「拉取模型失败」。点击查看如何放行。</string>
+    <string name="bootstrap_settings_quick_actions_background_dialog_title">如何让后台模式稳定运行</string>
+    <string name="bootstrap_settings_quick_actions_background_dialog_message">后台模式把酒馆页面交给系统浏览器，此时本应用完全在后台，能否联网由系统的后台管理策略决定。\n\n华为 / 荣耀：设置 → 应用 → 应用启动管理 → 找到本应用 → 关闭「自动管理」→ 勾选「允许自启动」「允许关联启动」「允许后台活动」，然后重启本应用。\n\n其他品牌：把本应用加入电池优化白名单 / 允许后台活动即可。\n\n注意：这一步无法由应用自己完成，必须手动放行一次。</string>
+    <string name="bootstrap_settings_quick_actions_background_open_startup">打开启动管理</string>
+    <string name="bootstrap_settings_quick_actions_background_open_battery">电池优化设置</string>
+    <string name="bootstrap_settings_quick_actions_background_open_failed">没有找到可用的系统设置页面，请手动到「设置 → 应用 → 本应用」中允许后台活动。</string>
     <string name="bootstrap_settings_config_path_label">配置文件位置</string>
     <string name="bootstrap_settings_sections_title">高级配置</string>
     <string name="bootstrap_settings_import_formats_title">导入前说明</string>
@@ -415,4 +432,35 @@ Linux/Termux 结构：根目录为 config、data、plugins、public；第三方�
     <string name="bootstrap_settings_export_name">sillydroid-data-backup-%1$s.zip</string>
     <string name="bootstrap_settings_search_no_result">没有匹配到相关配置项。</string>
     <string name="browser_open_external_failed">无法在系统浏览器中打开该链接。</string>
+
+    <string name="bootstrap_settings_tavern_update_title">酒馆版本更新</string>
+    <string name="bootstrap_settings_tavern_update_summary">从 GitHub 拉取 SillyTavern 官方仓库指定版本并就地覆盖服务源码，保留你的配置与数据。留空则拉取最新版。</string>
+    <string name="bootstrap_settings_tavern_update_version_hint">目标版本（tag 或分支，留空=最新版）</string>
+    <string name="bootstrap_settings_tavern_update_action">检查并更新</string>
+    <string name="bootstrap_settings_tavern_update_local_action">仅重装依赖</string>
+    <string name="bootstrap_settings_tavern_update_stopping">正在停止酒馆服务以应用更新…</string>
+    <string name="bootstrap_settings_tavern_update_running">正在更新酒馆，请勿关闭本页面…</string>
+    <string name="bootstrap_settings_tavern_update_success">酒馆已更新到 %1$s，服务正在重启。</string>
+    <string name="bootstrap_settings_tavern_update_already_latest">当前已是 %1$s，无需更新。</string>
+    <string name="bootstrap_settings_tavern_update_failed">酒馆更新失败：%1$s</string>
+    <string name="bootstrap_settings_tavern_update_npm_success">依赖已重装完成，服务正在重启。</string>
+    <string name="bootstrap_settings_tavern_update_npm_failed">依赖重装失败：%1$s</string>
+    <string name="bootstrap_settings_tavern_update_invalid_ref">请输入有效的版本号（tag 或分支名）。</string>
+    <string name="bootstrap_settings_tavern_update_current_version">当前版本：%1$s</string>
+    <string name="bootstrap_settings_tavern_update_current_version_unknown">当前版本：未知</string>
+    <string name="bootstrap_settings_tavern_update_network_line">当前线路：%1$s</string>
+    <string name="bootstrap_settings_tavern_update_network_unknown">当前线路：检测中…</string>
+    <string name="bootstrap_settings_tavern_update_network_unreachable">当前线路：不可用（GitHub 与镜像均无法连接）</string>
+    <string name="bootstrap_settings_tavern_update_network_dns_broken">DNS 解析异常：断网重连后系统解析通道失效，请关掉再打开 Wi-Fi 或重启 App</string>
+    <string name="bootstrap_settings_tavern_update_network_probe_failed">线路检测执行失败，请查看运行日志。</string>
+    <string name="bootstrap_settings_tavern_update_network_retry">重新检测线路</string>
+    <string name="bootstrap_settings_tavern_update_network_detecting">正在检测网络线路…</string>
+    <string name="bootstrap_settings_tavern_update_versions_title">可安装版本</string>
+    <string name="bootstrap_settings_tavern_update_versions_loading">正在拉取版本列表…</string>
+    <string name="bootstrap_settings_tavern_update_versions_load">拉取版本列表</string>
+    <string name="bootstrap_settings_tavern_update_versions_empty">没有拉到可用版本。</string>
+    <string name="bootstrap_settings_tavern_update_versions_failed">版本列表拉取失败，请检查网络后重试。</string>
+    <string name="bootstrap_settings_tavern_update_versions_hint">点选任意版本即可回退到该版本（数据不会丢失）。</string>
+    <string name="bootstrap_settings_tavern_update_pick_version_title">选择要安装的版本</string>
+    <string name="bootstrap_settings_tavern_update_version_picked">已选择版本 %1$s，点「检查并更新」即可切换到该版本。</string>
 </resources>

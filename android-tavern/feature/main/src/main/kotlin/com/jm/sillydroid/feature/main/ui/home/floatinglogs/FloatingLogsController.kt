@@ -38,6 +38,7 @@ import com.jm.sillydroid.core.ui.logs.showHostLogExportSelectionDialog
 import com.jm.sillydroid.core.ui.scroll.DraggableScrollThumbController
 import com.jm.sillydroid.core.model.logs.HostLogEntry
 import com.jm.sillydroid.core.model.logs.HostLogSnapshot
+import com.jm.sillydroid.core.model.settings.BrowserEngine
 import com.jm.sillydroid.core.model.settings.BrowserZoomOptions
 import com.jm.sillydroid.core.model.settings.FloatingLogRefreshIntervals
 import com.jm.sillydroid.domain.logs.HostLogRepository
@@ -67,6 +68,7 @@ class FloatingLogsController(
     private val canOpenSettings: (BootstrapSessionSnapshot) -> Boolean,
     private val openSettings: () -> Unit,
     private val openCurrentPageInBrowser: () -> Boolean,
+    private val onRequestFullExit: () -> Unit,
     private val reloadTavernWebView: () -> Boolean,
     private val applyBrowserZoomPercent: (Int) -> Boolean,
     private val applyBrowserPageZoomPercent: (Int) -> Boolean,
@@ -343,6 +345,23 @@ class FloatingLogsController(
         views.feedbackButton.setOnClickListener {
             showFeedbackDialog()
         }
+        views.fullExitButton.setOnClickListener {
+            showFullExitConfirmation()
+        }
+    }
+
+    /** 停止服务会中断当前酒馆会话，先明确告知再执行，避免误触。 */
+    private fun showFullExitConfirmation() {
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.floating_logs_full_exit_title)
+            .setMessage(R.string.floating_logs_full_exit_message)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.floating_logs_full_exit_confirm) { _, _ ->
+                setPanelVisible(false)
+                recordHostDiagnostic("browser", "event=full_exit_confirmed")
+                onRequestFullExit()
+            }
+            .show()
     }
 
     private fun startRefreshLoop() {
@@ -531,7 +550,21 @@ class FloatingLogsController(
         views.intervalButton.text = refreshIntervalLabel(preferences.floatingLogRefreshIntervalMillis)
         views.intervalButton.isEnabled = true
         updateBrowserZoomLabel(preferences.browserZoomPercent)
-        updateBrowserPageZoomLabel(preferences.browserPageZoomPercent)
+        updateBrowserPageZoomControlState()
+    }
+
+    /** GeckoView 下界面密度固定 100%，把滑块禁用并说明改用字体缩放，避免误调导致视口溢出。 */
+    private fun updateBrowserPageZoomControlState() {
+        val gecko = preferences.browserEngine == BrowserEngine.GECKOVIEW
+        views.browserPageZoomSlider.isEnabled = !gecko
+        views.browserPageZoomSlider.alpha = if (gecko) 0.4f else 1f
+        views.browserPageZoomLabel.text = if (gecko) {
+            activity.getString(R.string.floating_logs_browser_page_zoom_gecko_disabled)
+        } else {
+            text.browserPageZoomLabel(
+                BrowserZoomOptions.sanitizeViewportDensity(preferences.browserPageZoomPercent)
+            )
+        }
     }
 
     private fun configureBrowserZoomControls() {
@@ -578,7 +611,7 @@ class FloatingLogsController(
         )
         views.browserPageZoomSlider.progress =
             BrowserZoomOptions.viewportDensitySliderProgress(preferences.browserPageZoomPercent)
-        updateBrowserPageZoomLabel(preferences.browserPageZoomPercent)
+        updateBrowserPageZoomControlState()
         views.browserPageZoomSlider.setOnSeekBarChangeListener(
             object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
@@ -1028,6 +1061,7 @@ data class FloatingLogsViews(
     val openSettingsButton: MaterialButton,
     val openBrowserButton: MaterialButton,
     val feedbackButton: MaterialButton,
+    val fullExitButton: MaterialButton,
     val scrollToBottomButton: ImageButton
 )
 
