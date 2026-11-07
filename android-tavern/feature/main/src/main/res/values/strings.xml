@@ -41,6 +41,11 @@
     <string name="browser_unavailable_open_settings">打开设置</string>
     <string name="browser_unavailable_open_external">在系统浏览器打开</string>
     <string name="geckoview_choice_prompt_title">请选择</string>
+    <string name="geckoview_selection_action_copy">复制</string>
+    <string name="geckoview_selection_action_cut">剪切</string>
+    <string name="geckoview_selection_action_paste">粘贴</string>
+    <string name="geckoview_selection_action_select_all">全选</string>
+    <string name="geckoview_selection_action_delete">删除</string>
     <string name="http_auth_prompt_title">需要登录</string>
     <string name="http_auth_prompt_message">%1$s 需要用户名和密码。</string>
     <string name="http_auth_prompt_message_with_realm">%1$s 需要用户名和密码。\n认证区域：%2$s</string>

@@ -53,12 +53,10 @@ PROGRESS_FILE="${TAVERN_PROGRESS_FILE:-/dev/null}"
 INFO_FILE="${TAVERN_INFO_FILE:-/dev/null}"
 DNS_MAP="${TAVERN_DNS_MAP:-}"
 
-# ---- 宿主预解析 IP 查询 ----
-# TAVERN_DNS_MAP 形如 "api.github.com=1.2.3.4,codeload.github.com=5.6.7.8"
-dns_lookup_pre() {
-    # $1 = 主机名；输出 IP（未命中则输出空）
-    _host="$1"
+# 注入整组映射，确保 GitHub 跳转到 codeload 等主机后仍可使用预解析 IP。
+dns_resolve_args() {
     _rest="$DNS_MAP"
+    _separator=""
     while [ -n "$_rest" ]; do
         _pair="${_rest%%,*}"
         if [ "$_pair" = "$_rest" ]; then
@@ -66,27 +64,16 @@ dns_lookup_pre() {
         else
             _rest="${_rest#*,}"
         fi
-        _k="${_pair%%=*}"
-        _v="${_pair#*=}"
-        if [ "$_k" = "$_host" ]; then
-            printf '%s' "$_v"
-            return 0
+        _host="${_pair%%=*}"
+        _ip="${_pair#*=}"
+        if [ -n "$_host" ] && [ -n "$_ip" ] && [ "$_host" != "$_pair" ]; then
+            printf '%s--resolve %s:443:%s' "$_separator" "$_host" "$_ip"
+            _separator=" "
         fi
     done
-    return 1
 }
 
-# 生成 curl 的 --resolve 参数（命中预解析 IP 时使用）
-dns_resolve_arg() {
-    # $1 = URL；输出 "--resolve host:port:ip" 或空
-    _host="$1"
-    _ip="$(dns_lookup_pre "$_host" 2>/dev/null || true)"
-    if [ -n "$_ip" ]; then
-        printf -- "--resolve %s:443:%s" "$_host" "$_ip"
-    fi
-}
-
-TMP_WORK="$APP_DATA_ROOT/.sillydroid-maintenance/tavern-update"
+TMP_WORK="$APP_DATA_ROOT/.sillydroid-maintenance/tavern-update.$$"
 rm -rf "$TMP_WORK"
 mkdir -p "$TMP_WORK"
 
@@ -125,12 +112,8 @@ keep_npm_log() {
     fi
 }
 
-# 清理下载包与解压产物。
-# 38MB 的 tar.gz 加上完整解压目录没有任何保留价值；
-# 之前只在「下一次更新」开头才清，等于一直白占用户空间。
 cleanup_work() {
-    rm -rf "$TMP_WORK/extract" 2>/dev/null || true
-    rm -f "$TMP_WORK/tavern.tar.gz" 2>/dev/null || true
+    rm -rf "$TMP_WORK" 2>/dev/null || true
 }
 
 # ---- 镜像候选：依次尝试，自动探测网络 ----
@@ -165,7 +148,7 @@ curl_fetch() {
         echo "[update-tavern]   try: $u"
         # 宿主预解析命中时用 --resolve 绕过 App 进程内不可用的 DNS。
         local resolve_arg
-        resolve_arg="$(dns_resolve_arg "$u")"
+        resolve_arg="$(dns_resolve_args)"
         if [ -n "$resolve_arg" ]; then
             if curl -fL --retry 2 --connect-timeout 12 --max-time 180 -o "$out" $resolve_arg "$u" 2>/dev/null; then
                 if [ -s "$out" ]; then
@@ -189,7 +172,7 @@ probe_line() {
     # $1 = 线路名; $2 = URL; 成功返回 0
     local name="$1"; local url="$2"
     local resolve_arg
-    resolve_arg="$(dns_resolve_arg "$url")"
+    resolve_arg="$(dns_resolve_args)"
     if [ -n "$resolve_arg" ]; then
         if curl -fL -s --connect-timeout 8 --max-time 20 $resolve_arg -o /dev/null "$url" 2>/dev/null; then
             echo "[update-tavern] probe ok: $name"
@@ -326,7 +309,7 @@ if [ "$ACTION" = "probe" ]; then
 
     # 顺便取回最新版本号，供 UI 直接展示
     LATEST_TAG=""
-    LATEST_RESOLVE="$(dns_resolve_arg "$WORKING" 2>/dev/null || true)"
+    LATEST_RESOLVE="$(dns_resolve_args 2>/dev/null || true)"
     if [ -n "$LATEST_RESOLVE" ]; then
         curl -fL -s --connect-timeout 8 --max-time 30 $LATEST_RESOLVE -o "$TMP_PROBE/latest.json" "$WORKING" 2>/dev/null || true
     else
@@ -352,7 +335,7 @@ if [ "$ACTION" = "list" ]; then
     TAGS_JSON=""
     for base in "$GITHUB_API_TAGS" "https://ghproxy.com/$GITHUB_API_TAGS" "https://mirror.ghproxy.com/$GITHUB_API_TAGS" "https://gh.api.99988866.xyz/$GITHUB_API_TAGS"; do
         echo "[update-tavern]   try: $base"
-        TAGS_RESOLVE="$(dns_resolve_arg "$base" 2>/dev/null || true)"
+        TAGS_RESOLVE="$(dns_resolve_args 2>/dev/null || true)"
         if [ -n "$TAGS_RESOLVE" ]; then
             curl -fL -s --connect-timeout 8 --max-time 40 $TAGS_RESOLVE -o "$TMP_LIST/tags.json" "$base" 2>/dev/null || true
         else
@@ -473,16 +456,19 @@ restore_old() {
     mv "$BAK" "$SERVER_DIR"
 }
 
-# 任何步骤失败（含被中途终止）且新源码未就位时，自动把旧版本搬回，避免服务端目录缺失。
-# 同时无论成功失败都清掉下载包与解压产物。
+UPDATE_COMMITTED=0
 on_exit() {
-    if [ ! -f "$SERVER_DIR/package.json" ] && [ -d "$BAK" ]; then
-        echo "[update-tavern] 回滚到旧版本"
+    exit_code=$?
+    trap - EXIT
+    if [ "$UPDATE_COMMITTED" -ne 1 ] && [ -d "$BAK" ]; then
+        echo "[update-tavern] 更新未完成，回滚到旧版本"
         restore_old
     fi
     cleanup_work
+    exit "$exit_code"
 }
 trap on_exit EXIT
+trap 'exit 1' TERM INT HUP
 
 mkdir -p "$SERVER_DIR"
 cp -a "$SRC"/. "$SERVER_DIR"/
@@ -501,13 +487,20 @@ if [ -f "$BAK/default/config.yaml" ]; then
     cp -f "$BAK/default/config.yaml" "$SERVER_DIR/default/config.yaml"
 fi
 
-# 复用旧版本已安装的 node_modules。
-# 用 mv 而不是 cp -a：两者在同一分区，rename 是瞬时的。
-# 之前 cp -a 整个 100MB+ 依赖目录，每次更新都要几十秒到几分钟，还把手机拖得很卡。
+# npm 会修改接管的依赖，因此有 npm 时必须保留一份未修改的备份供失败回滚。
+# 无 npm 时依赖不会被改写，继续用同分区 rename，避免复制整个 node_modules。
+HAS_NPM=0
+if command -v npm >/dev/null 2>&1; then
+    HAS_NPM=1
+fi
 if [ -d "$BAK/node_modules" ] && [ ! -d "$SERVER_DIR/node_modules" ]; then
     progress 64 "接管旧版依赖 node_modules…"
-    mv "$BAK/node_modules" "$SERVER_DIR/node_modules" 2>/dev/null \
-        || cp -a "$BAK/node_modules" "$SERVER_DIR/node_modules"
+    if [ "$HAS_NPM" -eq 1 ]; then
+        cp -a "$BAK/node_modules" "$SERVER_DIR/node_modules"
+    else
+        mv "$BAK/node_modules" "$SERVER_DIR/node_modules" 2>/dev/null \
+            || cp -a "$BAK/node_modules" "$SERVER_DIR/node_modules"
+    fi
 fi
 
 # ---- 5. 调和依赖 ----
@@ -516,7 +509,7 @@ fi
 # 盲目执行 npm install 只会 "not found" 然后白白回滚掉一次成功的下载与解压。
 NPM_LOG="$TMP_WORK/npm.log"
 cd "$SERVER_DIR"
-if command -v npm >/dev/null 2>&1; then
+if [ "$HAS_NPM" -eq 1 ]; then
     progress 78 "调和依赖 (npm install)…"
     if npm install --no-audit --no-fund --omit=dev >"$NPM_LOG" 2>&1; then
         progress 95 "依赖调和完成"
@@ -560,8 +553,7 @@ for meta in bootstrap-manifest.json server-source-manifest.json dependency-selec
     fi
 done
 
-# 依赖已被接管，旧备份只剩源码（约 20MB），但留着也没有恢复价值：
-# 真出问题时用同一张卡片重装任意版本即可。直接删掉，避免长期占用空间。
+UPDATE_COMMITTED=1
 rm -rf "$BAK" 2>/dev/null || true
 progress 100 "更新完成：$TAG"
 echo "[update-tavern] done: $TAG"

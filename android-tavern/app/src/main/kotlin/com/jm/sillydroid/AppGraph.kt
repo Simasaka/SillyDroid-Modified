@@ -44,6 +44,8 @@ import com.jm.sillydroid.domain.settings.SettingsConfigRepository
 import com.jm.sillydroid.domain.tavernupdate.TavernUpdateRunner
 import com.jm.sillydroid.domain.update.AppUpdateRepository
 import com.jm.sillydroid.domain.update.AppUpdateStateRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 
 /**
  * App 进程依赖图，集中装配宿主运行时、设置、日志、更新和功能模块入口。
@@ -55,6 +57,7 @@ class AppGraph(
     onAppForegroundChanged: (Boolean) -> Unit = {}
 ) : SillyDroidAppGraph {
     override val dispatchers: DispatcherProvider = AndroidDispatcherProvider
+    override val applicationScope = CoroutineScope(SupervisorJob() + dispatchers.mainImmediate)
 
     private val appForegroundStateStore = ApplicationForegroundStateStore(onAppForegroundChanged).also { foregroundStateStore ->
         application.registerActivityLifecycleCallbacks(foregroundStateStore)

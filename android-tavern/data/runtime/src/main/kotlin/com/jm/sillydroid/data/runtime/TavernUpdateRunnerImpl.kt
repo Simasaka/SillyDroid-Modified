@@ -8,6 +8,8 @@ import com.jm.sillydroid.domain.tavernupdate.TavernUpdateResult
 import com.jm.sillydroid.domain.tavernupdate.TavernUpdateRunner
 import com.jm.sillydroid.domain.tavernupdate.TavernVersionList
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -28,12 +30,16 @@ class TavernUpdateRunnerImpl(
 ) : TavernUpdateRunner {
 
     private val appContext = context.applicationContext
+    private val operationMutex = Mutex()
+
+    private suspend fun <T> serializedOperation(block: suspend () -> T): T =
+        withContext(Dispatchers.IO) { operationMutex.withLock { block() } }
 
     override suspend fun runUpdate(
         targetRef: String?,
         mirror: String,
         onProgress: (percent: Int, message: String) -> Unit
-    ): TavernUpdateResult = withContext(Dispatchers.IO) {
+    ): TavernUpdateResult = serializedOperation {
         val paths = HostPaths.from(appContext)
         val launcher = LinuxRuntimeLauncher(paths)
         AssetExtractor(appContext).prepareHostExtensionAssets(paths)
@@ -54,7 +60,7 @@ class TavernUpdateRunnerImpl(
 
     override suspend fun reinstallDependencies(
         onProgress: (percent: Int, message: String) -> Unit
-    ): TavernUpdateResult = withContext(Dispatchers.IO) {
+    ): TavernUpdateResult = serializedOperation {
         val paths = HostPaths.from(appContext)
         AssetExtractor(appContext).prepareHostExtensionAssets(paths)
 
@@ -70,7 +76,7 @@ class TavernUpdateRunnerImpl(
         execute("tavern-reinstall", launchScriptText, environment, onProgress, REINSTALL_TIMEOUT_MINUTES)
     }
 
-    override suspend fun probeNetwork(): TavernNetworkProbe = withContext(Dispatchers.IO) {
+    override suspend fun probeNetwork(): TavernNetworkProbe = serializedOperation {
         val paths = HostPaths.from(appContext)
         AssetExtractor(appContext).prepareHostExtensionAssets(paths)
 
@@ -85,34 +91,35 @@ class TavernUpdateRunnerImpl(
 
         // 探测前先刷新一次 DNS 通道：Wi-Fi 断连重连后 netd 给本 UID 的解析器可能已失效。
         val dnsMap = prepareDnsMap()
-        val environment = buildUpdateEnvironment(paths, updateScript, "latest", "auto") +
-            ("TAVERN_INFO_FILE" to infoFile.absolutePath) +
-            ("TAVERN_DNS_MAP" to dnsMap)
+        val environment = buildUpdateEnvironment(paths, updateScript, "latest", "auto", dnsMap) +
+            ("TAVERN_INFO_FILE" to infoFile.absolutePath)
         val launchScriptText = buildHostRuntimeLaunchScript(
             "UPDATE_SCRIPT" to updateScript.absolutePath,
             "UPDATE_ACTION" to "probe"
         )
         execute("tavern-probe", launchScriptText, environment, { _, _ -> }, PROBE_TIMEOUT_MINUTES)
 
-        val payload = readTextOrNull(infoFile) ?: return@withContext TavernNetworkProbe(
+        val payload = readTextOrNull(infoFile) ?: return@serializedOperation TavernNetworkProbe(
             reachable = false,
             workingLine = "",
             workingUrl = "",
             latestTag = "",
-            dnsResolved = dnsMap.isNotBlank(),
-            nodeDiagnostic = ""
+            dnsResolved = dnsMap.isNotBlank()
         )
+        val nodeDiagnostic = extractJsonString(payload, "node_diag")
+        if (nodeDiagnostic.isNotBlank()) {
+            Log.i(TAG, "probe node_diag: $nodeDiagnostic")
+        }
         TavernNetworkProbe(
             reachable = extractJsonString(payload, "reachable") == "true",
             workingLine = extractJsonString(payload, "working_line"),
             workingUrl = extractJsonString(payload, "working_url"),
             latestTag = extractJsonString(payload, "latest_tag"),
-            dnsResolved = dnsMap.isNotBlank(),
-            nodeDiagnostic = extractJsonString(payload, "node_diag")
+            dnsResolved = dnsMap.isNotBlank()
         )
     }
 
-    override suspend fun listVersions(): TavernVersionList = withContext(Dispatchers.IO) {
+    override suspend fun listVersions(): TavernVersionList = serializedOperation {
         val paths = HostPaths.from(appContext)
         AssetExtractor(appContext).prepareHostExtensionAssets(paths)
 
@@ -126,16 +133,15 @@ class TavernUpdateRunnerImpl(
         infoFile.delete()
 
         val dnsMap = prepareDnsMap()
-        val environment = buildUpdateEnvironment(paths, updateScript, "latest", "auto") +
-            ("TAVERN_INFO_FILE" to infoFile.absolutePath) +
-            ("TAVERN_DNS_MAP" to dnsMap)
+        val environment = buildUpdateEnvironment(paths, updateScript, "latest", "auto", dnsMap) +
+            ("TAVERN_INFO_FILE" to infoFile.absolutePath)
         val launchScriptText = buildHostRuntimeLaunchScript(
             "UPDATE_SCRIPT" to updateScript.absolutePath,
             "UPDATE_ACTION" to "list"
         )
         execute("tavern-list", launchScriptText, environment, { _, _ -> }, PROBE_TIMEOUT_MINUTES)
 
-        val payload = readTextOrNull(infoFile) ?: return@withContext TavernVersionList(false, emptyList())
+        val payload = readTextOrNull(infoFile) ?: return@serializedOperation TavernVersionList(false, emptyList())
         // `]` 同样要转义：Android 的 ICU 正则不允许未配对的裸 `]`。
         val versions = runCatching {
             Regex("\"versions\"\\s*:\\s*\\[(.*?)\\]", RegexOption.DOT_MATCHES_ALL)
@@ -177,7 +183,8 @@ class TavernUpdateRunnerImpl(
         paths: HostPaths,
         script: File,
         targetRef: String,
-        mirror: String
+        mirror: String,
+        dnsMap: String = prepareDnsMap()
     ): Map<String, String> {
         return mapOf(
             "APP_DATA_ROOT" to paths.serverDataDir.absolutePath,
@@ -186,7 +193,7 @@ class TavernUpdateRunnerImpl(
             "TAVERN_MIRROR" to mirror,
             "TAVERN_PROGRESS_FILE" to File(paths.serverDataDir, ".sillydroid-maintenance/tavern-update.progress.json").absolutePath,
             // 宿主预解析的 IP 映射：绕开 App 进程内不可用的 DNS（国产 ROM 限制 UDP/53）。
-            "TAVERN_DNS_MAP" to buildDnsMap()
+            "TAVERN_DNS_MAP" to dnsMap
         )
     }
 

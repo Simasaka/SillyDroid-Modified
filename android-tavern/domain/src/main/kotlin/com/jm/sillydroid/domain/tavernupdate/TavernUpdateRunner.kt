@@ -61,16 +61,13 @@ interface TavernUpdateRunner {
  * @param latestTag 该线路上看到的最新版本号（可能为空）
  * @param dnsResolved 宿主侧 DNS 是否成功解析出 IP。false 表示宿主 DNS 也不可用，
  *                    此时大概率是网络切换后 netd 的 DNS 通道卡死，需要重启 App 或刷新网络。
- * @param nodeDiagnostic Node 侧 DNS 能力诊断结果（原始 JSON 文本），用于排查
- *                       「宿主能解析、但酒馆服务里的 Node 解析不了」这类分叉问题。
  */
 data class TavernNetworkProbe(
     val reachable: Boolean,
     val workingLine: String,
     val workingUrl: String,
     val latestTag: String,
-    val dnsResolved: Boolean = true,
-    val nodeDiagnostic: String = ""
+    val dnsResolved: Boolean = true
 )
 
 /**

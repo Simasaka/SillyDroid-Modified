@@ -5,22 +5,27 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.graphics.drawable.GradientDrawable
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Debug
 import android.os.Process
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
+import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.R as MaterialR
 import com.jm.sillydroid.core.model.bootstrap.BootstrapSessionSnapshot
 import com.jm.sillydroid.core.model.settings.BrowserDataClearOptions
 import com.jm.sillydroid.core.ui.browser.ExternalBrowserLauncher
@@ -129,6 +134,14 @@ class TavernGeckoViewHost(
     private var currentUrl: String = retainedGeckoSurface.currentUrl
     private var configured = false
     private var waitingForInitialPagePaint = false
+    private var selectionActionPopup: PopupWindow? = null
+    private val selectionActionEntries = listOf(
+        GeckoSession.SelectionActionDelegate.ACTION_COPY to R.string.geckoview_selection_action_copy,
+        GeckoSession.SelectionActionDelegate.ACTION_CUT to R.string.geckoview_selection_action_cut,
+        GeckoSession.SelectionActionDelegate.ACTION_PASTE to R.string.geckoview_selection_action_paste,
+        GeckoSession.SelectionActionDelegate.ACTION_SELECT_ALL to R.string.geckoview_selection_action_select_all,
+        GeckoSession.SelectionActionDelegate.ACTION_DELETE to R.string.geckoview_selection_action_delete
+    )
     private val httpAuthPromptController by lazy {
         HttpAuthPromptController(
             activity = activity,
@@ -146,18 +159,6 @@ class TavernGeckoViewHost(
     override val browserSessionIdentity: String
         get() = "${browserEngine.name}:${System.identityHashCode(session)}"
     private var browserSurfaceDestroyed = false
-
-    init {
-        // GeckoView 不会跟随 Android 的输入法 insets：键盘弹起时窗口虽然被 adjustResize 压缩，
-        // Gecko 侧仍按原高度排版，固定在底部的输入框会被键盘盖住。
-        // setVerticalClipping 告诉 Gecko 底部被遮挡的高度（正值表示被裁掉），它会重新计算可视区，
-        // 页面里的 100vh / 底部定位元素随之调整，输入框就能浮到键盘上方。
-        ViewCompat.setOnApplyWindowInsetsListener(geckoView) { _, insets ->
-            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-            geckoView.setVerticalClipping(imeBottom)
-            insets
-        }
-    }
 
     override fun currentBrowserRuntimeInfo(): BrowserRuntimeInfo {
         val coreVersion = GeckoBuildConfig.GRE_MILESTONE.trim()
@@ -297,6 +298,7 @@ class TavernGeckoViewHost(
     override fun hideForBootstrapRestart() {
         homeViewModel.isPullGestureRefreshing = false
         waitingForInitialPagePaint = false
+        dismissSelectionActions()
         session.setActive(false)
         session.setFocused(false)
         browserFrame.isVisible = false
@@ -390,6 +392,7 @@ class TavernGeckoViewHost(
     /** 释放 Activity delegate；普通销毁必须保留进程安全 native bridge，renderer 销毁才关闭。 */
     private fun releaseGeckoActivityBindings(reason: String, closeProcessBridge: Boolean) {
         httpAuthPromptController.dismissActivePrompt(reason = "geckoview_$reason")
+        dismissSelectionActions()
         if (closeProcessBridge) {
             bridgeInstaller.close()
         }
@@ -400,6 +403,7 @@ class TavernGeckoViewHost(
         session.contentDelegate = null
         session.permissionDelegate = null
         session.promptDelegate = null
+        session.selectionActionDelegate = null
     }
 
     override fun openCurrentPageInExternalBrowser(): Boolean {
@@ -661,6 +665,29 @@ class TavernGeckoViewHost(
                 return result
             }
         }
+
+        // GeckoView 只画选择手柄，复制/粘贴菜单必须由宿主通过 SelectionActionDelegate 提供；
+        // 不注册时长按能选中文字但永远不出现操作菜单。
+        session.selectionActionDelegate = object : GeckoSession.SelectionActionDelegate {
+            override fun onShowActionRequest(
+                session: GeckoSession,
+                selection: GeckoSession.SelectionActionDelegate.Selection
+            ) {
+                showSelectionActions(selection)
+            }
+
+            override fun onHideAction(session: GeckoSession, reason: Int) {
+                dismissSelectionActions()
+            }
+
+            override fun onShowClipboardPermissionRequest(
+                session: GeckoSession,
+                permission: GeckoSession.SelectionActionDelegate.ClipboardPermission
+            ): GeckoResult<AllowOrDeny> {
+                // 粘贴由用户点选触发，Gecko 需要读系统剪贴板；本会话只加载本地酒馆，直接放行。
+                return GeckoResult.allow()
+            }
+        }
     }
 
     private suspend fun completeFilePrompt(
@@ -719,6 +746,92 @@ class TavernGeckoViewHost(
             body = "event=file_prompt_completed selectedCount=${preparedUris?.size ?: 0}"
         )
         return response
+    }
+
+    private fun showSelectionActions(selection: GeckoSession.SelectionActionDelegate.Selection) {
+        dismissSelectionActions()
+        if (!geckoView.isAttachedToWindow) {
+            return
+        }
+        val entries = selectionActionEntries.filter { (actionId, _) -> selection.isActionAvailable(actionId) }
+        if (entries.isEmpty()) {
+            return
+        }
+        val density = activity.resources.displayMetrics.density
+        val surfaceColor = MaterialColors.getColor(geckoView, MaterialR.attr.colorSurface)
+        val onSurfaceColor = MaterialColors.getColor(geckoView, MaterialR.attr.colorOnSurface)
+        val container = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = GradientDrawable().apply {
+                cornerRadius = 12f * density
+                setColor(surfaceColor)
+            }
+        }
+        entries.forEach { (actionId, labelRes) ->
+            val item = TextView(activity).apply {
+                text = activity.getString(labelRes)
+                textSize = 14f
+                setTextColor(onSurfaceColor)
+                val paddingH = (14f * density).roundToInt()
+                val paddingV = (10f * density).roundToInt()
+                setPadding(paddingH, paddingV, paddingH, paddingV)
+                val ripple = TypedValue()
+                activity.theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+                setBackgroundResource(ripple.resourceId)
+                setOnClickListener {
+                    selection.execute(actionId)
+                    dismissSelectionActions()
+                }
+            }
+            container.addView(item)
+        }
+        // 用 PopupWindow 而非 ActionMode：悬浮浏览器是 TYPE_APPLICATION_OVERLAY 独立窗口，
+        // ActionMode 只会出现在背后的 Activity 窗口里；PopupWindow 跟随锚点所在窗口，两种形态都可见。
+        val popup = PopupWindow(
+            container,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            elevation = 8f * density
+        }
+        container.measure(
+            View.MeasureSpec.makeMeasureSpec(geckoView.width.coerceAtLeast(1), View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val popupWidth = container.measuredWidth
+        val popupHeight = container.measuredHeight
+        val screenLocation = IntArray(2).also(geckoView::getLocationOnScreen)
+        val windowLocation = IntArray(2).also(geckoView::getLocationInWindow)
+        val windowOriginX = screenLocation[0] - windowLocation[0]
+        val windowOriginY = screenLocation[1] - windowLocation[1]
+        val margin = (8f * density).roundToInt()
+        val rect = selection.screenRect
+        val anchorX: Int
+        val anchorY: Int
+        if (rect != null && !rect.isEmpty) {
+            anchorX = (rect.centerX() - windowOriginX - popupWidth / 2f).roundToInt()
+            val aboveY = (rect.top - windowOriginY - popupHeight - margin).roundToInt()
+            anchorY = if (aboveY >= 0) aboveY else (rect.bottom - windowOriginY + margin).roundToInt()
+        } else {
+            anchorX = windowLocation[0] + (geckoView.width - popupWidth) / 2
+            anchorY = windowLocation[1] + margin
+        }
+        val maxX = (geckoView.rootView.width - popupWidth).coerceAtLeast(0)
+        runCatching {
+            popup.showAtLocation(geckoView, Gravity.TOP or Gravity.START, anchorX.coerceIn(0, maxX), anchorY)
+        }.onSuccess {
+            selectionActionPopup = popup
+        }.onFailure { error ->
+            recordHostDiagnostic(
+                category = "geckoview",
+                body = "event=selection_popup_show_failed error=${error.javaClass.simpleName} message=${normalizeDiagnosticValue(error.message)}"
+            )
+        }
+    }
+
+    private fun dismissSelectionActions() {
+        selectionActionPopup?.dismiss()
+        selectionActionPopup = null
     }
 
     private fun isAllowedLocalContentPermission(permission: Int): Boolean {

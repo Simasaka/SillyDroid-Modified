@@ -19,9 +19,11 @@ import com.jm.sillydroid.domain.settings.HostPreferencesRepository
 import com.jm.sillydroid.domain.settings.SettingsConfigRepository
 import com.jm.sillydroid.domain.tavernupdate.TavernUpdateRunner
 import com.jm.sillydroid.domain.update.AppUpdateRepository
+import kotlinx.coroutines.CoroutineScope
 
 interface SillyDroidAppGraph {
     val dispatchers: DispatcherProvider
+    val applicationScope: CoroutineScope
     val hostConfigStore: HostPreferencesRepository
     val hostLogRepository: HostLogRepository
     val hostNotificationService: HostNotificationService

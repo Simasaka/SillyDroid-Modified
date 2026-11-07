@@ -65,11 +65,14 @@ import com.jm.sillydroid.feature.settings.viewmodel.SettingsActivityViewModel
 import com.jm.sillydroid.feature.settings.viewmodel.SettingsActivityViewModelFactory
 import com.termux.view.TerminalView
 import com.jm.sillydroid.ui.update.AppUpdateCoordinator
+import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.zip.CRC32
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * 宿主设置页，管理运行时配置、数据导入导出、日志、扩展、终端和关于信息。
@@ -93,6 +96,7 @@ class BootstrapSettingsActivity : AppCompatActivity() {
         private const val mtManagerShortcutOperationGoto = "goto"
         private const val guidePreferencesName = "bootstrap-settings-guides"
         private const val mtManagerGuideShownKey = "mt-manager-guide-shown"
+        private val tavernMaintenanceMutex = Mutex()
 
         fun createIntent(
             activity: Activity,
@@ -639,11 +643,6 @@ class BootstrapSettingsActivity : AppCompatActivity() {
                         )
                     }
                 }
-                // Node 侧 DNS 诊断：宿主能解析但服务里的 Node 不能时，这里能直接看出差异。
-                if (probe != null && probe.nodeDiagnostic.isNotBlank()) {
-                    tavernUpdateVersionsHintView.visibility = View.VISIBLE
-                    tavernUpdateVersionsHintView.text = probe.nodeDiagnostic
-                }
             }
         }
     }
@@ -724,67 +723,71 @@ class BootstrapSettingsActivity : AppCompatActivity() {
         tavernUpdateProgress.progress = 0
         tavernUpdateStatus.visibility = View.VISIBLE
         tavernUpdateStatus.text = getString(R.string.bootstrap_settings_tavern_update_running)
-        lifecycleScope.launch {
-            try {
-                // 目标版本就是当前版本时直接返回：连服务都不用停，更不会白下载一遍。
-                // 留空（=latest）无法在这里判定，交给脚本在解析出远端最新版后自行比较。
-                val installedVersion = appGraph.tavernUpdateRunner.currentVersion()
-                val explicitRef = targetRef?.takeIf { it.isNotBlank() && it != "latest" }
-                if (explicitRef != null && installedVersion != null && explicitRef == installedVersion) {
-                    val msg = getString(
-                        R.string.bootstrap_settings_tavern_update_already_latest,
-                        installedVersion
-                    )
-                    tavernUpdateStatus.text = msg
-                    screenController.showMessage(msg)
-                    return@launch
-                }
+        val activityRef = WeakReference(this)
+        val graph = appGraph
+        val controller = processManager
+        val stoppingMessage = getString(R.string.bootstrap_settings_tavern_update_stopping)
+        graph.applicationScope.launch {
+            tavernMaintenanceMutex.withLock {
+                var restartRequired = false
+                try {
+                    val installedVersion = graph.tavernUpdateRunner.currentVersion()
+                    val explicitRef = targetRef?.takeIf { it.isNotBlank() && it != "latest" }
+                    if (explicitRef != null && installedVersion != null && explicitRef == installedVersion) {
+                        postSettingsUi(activityRef) {
+                            val msg = getString(
+                                R.string.bootstrap_settings_tavern_update_already_latest,
+                                installedVersion
+                            )
+                            tavernUpdateStatus.text = msg
+                            screenController.showMessage(msg)
+                        }
+                        return@withLock
+                    }
 
-                processManager.stopForSettingsAndAwait(getString(R.string.bootstrap_settings_tavern_update_stopping))
-                val result = appGraph.tavernUpdateRunner.runUpdate(targetRef, "auto") { percent, message ->
-                    runOnUiThread { showTavernUpdateProgress(percent, message) }
-                }
-                runOnUiThread {
-                    if (result.success) {
-                        // 用实际安装后的版本号，而不是用户输入的内容：
-                        // 输入 "latest" 时，只有读回来才知道到底装成了哪个版本。
-                        val resolved = appGraph.tavernUpdateRunner.currentVersion()
-                            ?: targetRef
-                            ?: "latest"
-                        val ok = if (result.alreadyUpToDate) {
-                            getString(R.string.bootstrap_settings_tavern_update_already_latest, resolved)
+                    restartRequired = true
+                    controller.stopForSettingsAndAwait(stoppingMessage)
+                    val result = graph.tavernUpdateRunner.runUpdate(targetRef, "auto") { percent, message ->
+                        postSettingsUi(activityRef) { showTavernUpdateProgress(percent, message) }
+                    }
+                    controller.restart()
+                    restartRequired = false
+                    postSettingsUi(activityRef) {
+                        if (result.success) {
+                            val resolved = graph.tavernUpdateRunner.currentVersion()
+                                ?: targetRef
+                                ?: "latest"
+                            val ok = if (result.alreadyUpToDate) {
+                                getString(R.string.bootstrap_settings_tavern_update_already_latest, resolved)
+                            } else {
+                                getString(R.string.bootstrap_settings_tavern_update_success, resolved)
+                            }
+                            tavernUpdateStatus.text = ok
+                            screenController.showMessage(ok)
+                            refreshTavernCurrentVersion()
+                            if (!result.alreadyUpToDate) {
+                                updateResultFlags(shouldReloadTavernUi = true)
+                            }
                         } else {
-                            getString(R.string.bootstrap_settings_tavern_update_success, resolved)
+                            val msg = getString(R.string.bootstrap_settings_tavern_update_failed, result.message)
+                            tavernUpdateStatus.text = msg
+                            screenController.showMessage(msg)
                         }
-                        tavernUpdateStatus.text = ok
-                        screenController.showMessage(ok)
-                        refreshTavernCurrentVersion()
-                        processManager.restart()
-                        if (!result.alreadyUpToDate) {
-                            // 换了版本 → 前端资源整套变了，必须让主界面重新加载页面。
-                            // 只置位不够：服务重启期间用户可能已经退回主界面，
-                            // 主界面会把这个请求记成待办，等 ready 后再补一次刷新。
-                            updateResultFlags(shouldReloadTavernUi = true)
-                        }
-                    } else {
-                        val msg = getString(R.string.bootstrap_settings_tavern_update_failed, result.message)
+                    }
+                } catch (exception: Exception) {
+                    postSettingsUi(activityRef) {
+                        val msg = getString(R.string.bootstrap_settings_tavern_update_failed, exception.message ?: "")
                         tavernUpdateStatus.text = msg
                         screenController.showMessage(msg)
-                        // 失败时脚本已经把旧版本搬回来了，这里必须把服务重新拉起来，
-                        // 否则主界面会一直停在「本地服务已暂停」。
-                        processManager.restart()
                     }
-                }
-            } catch (exception: Exception) {
-                runOnUiThread {
-                    val msg = getString(R.string.bootstrap_settings_tavern_update_failed, exception.message ?: "")
-                    tavernUpdateStatus.text = msg
-                    screenController.showMessage(msg)
-                }
-            } finally {
-                runOnUiThread {
-                    setTavernUpdateControlsEnabled(true)
-                    screenController.setBusy(false)
+                } finally {
+                    if (restartRequired) {
+                        controller.restart()
+                    }
+                    postSettingsUi(activityRef) {
+                        setTavernUpdateControlsEnabled(true)
+                        screenController.setBusy(false)
+                    }
                 }
             }
         }
@@ -799,36 +802,46 @@ class BootstrapSettingsActivity : AppCompatActivity() {
         tavernUpdateProgress.progress = 0
         tavernUpdateStatus.visibility = View.VISIBLE
         tavernUpdateStatus.text = getString(R.string.bootstrap_settings_tavern_update_running)
-        lifecycleScope.launch {
-            try {
-                processManager.stopForSettingsAndAwait(getString(R.string.bootstrap_settings_tavern_update_stopping))
-                val result = appGraph.tavernUpdateRunner.reinstallDependencies { percent, message ->
-                    runOnUiThread { showTavernUpdateProgress(percent, message) }
-                }
-                runOnUiThread {
-                    if (result.success) {
-                        val ok = getString(R.string.bootstrap_settings_tavern_update_npm_success)
-                        tavernUpdateStatus.text = ok
-                        screenController.showMessage(ok)
-                        processManager.restart()
-                    } else {
-                        val msg = getString(R.string.bootstrap_settings_tavern_update_npm_failed, result.message)
+        val activityRef = WeakReference(this)
+        val graph = appGraph
+        val controller = processManager
+        val stoppingMessage = getString(R.string.bootstrap_settings_tavern_update_stopping)
+        graph.applicationScope.launch {
+            tavernMaintenanceMutex.withLock {
+                var restartRequired = false
+                try {
+                    restartRequired = true
+                    controller.stopForSettingsAndAwait(stoppingMessage)
+                    val result = graph.tavernUpdateRunner.reinstallDependencies { percent, message ->
+                        postSettingsUi(activityRef) { showTavernUpdateProgress(percent, message) }
+                    }
+                    controller.restart()
+                    restartRequired = false
+                    postSettingsUi(activityRef) {
+                        if (result.success) {
+                            val ok = getString(R.string.bootstrap_settings_tavern_update_npm_success)
+                            tavernUpdateStatus.text = ok
+                            screenController.showMessage(ok)
+                        } else {
+                            val msg = getString(R.string.bootstrap_settings_tavern_update_npm_failed, result.message)
+                            tavernUpdateStatus.text = msg
+                            screenController.showMessage(msg)
+                        }
+                    }
+                } catch (exception: Exception) {
+                    postSettingsUi(activityRef) {
+                        val msg = getString(R.string.bootstrap_settings_tavern_update_npm_failed, exception.message ?: "")
                         tavernUpdateStatus.text = msg
                         screenController.showMessage(msg)
-                        // 同上：失败也要把服务恢复起来。
-                        processManager.restart()
                     }
-                }
-            } catch (exception: Exception) {
-                runOnUiThread {
-                    val msg = getString(R.string.bootstrap_settings_tavern_update_npm_failed, exception.message ?: "")
-                    tavernUpdateStatus.text = msg
-                    screenController.showMessage(msg)
-                }
-            } finally {
-                runOnUiThread {
-                    setTavernUpdateControlsEnabled(true)
-                    screenController.setBusy(false)
+                } finally {
+                    if (restartRequired) {
+                        controller.restart()
+                    }
+                    postSettingsUi(activityRef) {
+                        setTavernUpdateControlsEnabled(true)
+                        screenController.setBusy(false)
+                    }
                 }
             }
         }
@@ -1335,4 +1348,16 @@ class BootstrapSettingsActivity : AppCompatActivity() {
         externalFlowFloatingBrowserSuppression = null
     }
 
+}
+
+private fun postSettingsUi(
+    activityRef: WeakReference<BootstrapSettingsActivity>,
+    action: BootstrapSettingsActivity.() -> Unit
+) {
+    activityRef.get()?.runOnUiThread {
+        val activity = activityRef.get() ?: return@runOnUiThread
+        if (!activity.isDestroyed) {
+            activity.action()
+        }
+    }
 }

@@ -6,6 +6,7 @@ import android.net.ConnectivityManager
 import android.os.Build
 import android.system.ErrnoException
 import android.system.Os
+import android.system.OsConstants
 import com.jm.sillydroid.core.model.bootstrap.BootstrapStepDetection
 import com.jm.sillydroid.core.model.settings.TavernServerLaunchMode
 import com.jm.sillydroid.domain.bootstrap.RuntimePatchSettingOverrides
@@ -1494,10 +1495,37 @@ class ManagedProcess(
     }
 
     fun stop() {
+        // 先快照子孙再终止父进程，避免 shell 退出后丢失 curl/npm 的 PID。
+        val descendantPids = runCatching {
+            val rootPid = (Process::class.java.getMethod("pid").invoke(process) as Number).toInt()
+            val byParentPid = listOwnedProcesses().groupBy { it.ppid }
+            val descendants = linkedSetOf<Int>()
+            fun collectDescendants(parentPid: Int) {
+                for (child in byParentPid[parentPid].orEmpty()) {
+                    if (descendants.add(child.pid)) {
+                        collectDescendants(child.pid)
+                    }
+                }
+            }
+            collectDescendants(rootPid)
+            descendants
+        }.getOrDefault(linkedSetOf())
+
+        descendantPids.forEach { pid -> runCatching { Os.kill(pid, OsConstants.SIGTERM) } }
         process.destroy()
         if (!process.waitFor(3, TimeUnit.SECONDS)) {
             process.destroyForcibly()
             process.waitFor(3, TimeUnit.SECONDS)
+        }
+        descendantPids.forEach { pid ->
+            if (File("/proc/$pid").exists()) {
+                runCatching { Os.kill(pid, OsConstants.SIGKILL) }
+            }
+        }
+
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+        while (System.nanoTime() < deadline && descendantPids.any { pid -> File("/proc/$pid").exists() }) {
+            Thread.sleep(50)
         }
     }
 }
