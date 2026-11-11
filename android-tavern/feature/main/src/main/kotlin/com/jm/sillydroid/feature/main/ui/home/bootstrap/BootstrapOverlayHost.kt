@@ -213,6 +213,21 @@ class BootstrapOverlayHost(
         processManager.start(forceRestart)
     }
 
+    /**
+     * 手动重启本地酒馆服务：复用设置页「需要重启」分支的成熟路径。
+     *
+     * 长时间切后台后 GeckoView 表面 / Node 会话可能卡死（白屏 / 黑屏、刷新无响应），
+     * 这里强制重新走一遍 bootstrap：重置待办、重新显示启动 overlay、隐藏旧浏览器表面，
+     * 再 start(forceRestart=true) 重启服务；并记一次就绪刷新，服务起来后自动重载页面。
+     */
+    fun restartLocalService() {
+        homeViewModel.resetForBootstrapRestart()
+        homeViewModel.pendingTavernUiReload = true
+        overlay.isVisible = true
+        browserHost.hideForBootstrapRestart()
+        startBootstrap(true)
+    }
+
     private fun openExternalBrowserForBackgroundOnly(snapshot: BootstrapSessionSnapshot) {
         val attemptKey = "${snapshot.appSessionId}:${snapshot.attemptId}:${snapshot.localUrl}"
         if (homeViewModel.backgroundOnlyExternalBrowserAttemptKey == attemptKey) {

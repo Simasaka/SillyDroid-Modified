@@ -69,6 +69,7 @@ class FloatingLogsController(
     private val openSettings: () -> Unit,
     private val openCurrentPageInBrowser: () -> Boolean,
     private val onRequestFullExit: () -> Unit,
+    private val onRequestRestartService: () -> Unit,
     private val reloadTavernWebView: () -> Boolean,
     private val applyBrowserZoomPercent: (Int) -> Boolean,
     private val applyBrowserPageZoomPercent: (Int) -> Boolean,
@@ -348,6 +349,23 @@ class FloatingLogsController(
         views.fullExitButton.setOnClickListener {
             showFullExitConfirmation()
         }
+        views.restartServiceButton.setOnClickListener {
+            showRestartServiceConfirmation()
+        }
+    }
+
+    /** 重启会中断当前酒馆会话，先明确告知再执行，避免误触。 */
+    private fun showRestartServiceConfirmation() {
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.floating_logs_restart_service_title)
+            .setMessage(R.string.floating_logs_restart_service_message)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.floating_logs_restart_service_confirm) { _, _ ->
+                setPanelVisible(false)
+                recordHostDiagnostic("browser", "event=manual_service_restart_confirmed")
+                onRequestRestartService()
+            }
+            .show()
     }
 
     /** 停止服务会中断当前酒馆会话，先明确告知再执行，避免误触。 */
@@ -1062,6 +1080,7 @@ data class FloatingLogsViews(
     val openBrowserButton: MaterialButton,
     val feedbackButton: MaterialButton,
     val fullExitButton: MaterialButton,
+    val restartServiceButton: MaterialButton,
     val scrollToBottomButton: ImageButton
 )
 

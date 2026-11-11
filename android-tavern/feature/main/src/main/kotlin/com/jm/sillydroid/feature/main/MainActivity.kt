@@ -208,6 +208,7 @@ class MainActivity : AppCompatActivity() {
             openSettings = { bootstrapOverlayHost.openBootstrapSettings() },
             openCurrentPageInBrowser = { browserHost.openCurrentPageInExternalBrowser() },
             onRequestFullExit = ::performFullExit,
+            onRequestRestartService = ::performRestartLocalService,
             reloadTavernWebView = { browserHost.reloadTavernWebView(source = "floating_logs_button") },
             applyBrowserZoomPercent = ::applyBrowserZoomPercentFromFloatingLogs,
             applyBrowserPageZoomPercent = ::applyBrowserPageZoomPercentFromFloatingLogs,
@@ -796,6 +797,16 @@ class MainActivity : AppCompatActivity() {
                 Process.killProcess(Process.myPid())
             }
         }
+    }
+
+    /**
+     * 「重启本地服务」：不退出应用，只强制重跑 bootstrap 恢复卡死的酒馆服务 / 浏览器表面。
+     * 用于长时间切后台后白屏 / 黑屏、刷新无响应时的手动恢复，具体重启动作交给 BootstrapOverlayHost。
+     */
+    private fun performRestartLocalService() {
+        recordDefaultHostDiagnostic(category = "browser", body = "event=manual_service_restart_requested")
+        Toast.makeText(this, R.string.floating_logs_restart_service_started, Toast.LENGTH_SHORT).show()
+        bootstrapOverlayHost.restartLocalService()
     }
 
     private fun createGeckoViewHost(): TavernBrowserHost {

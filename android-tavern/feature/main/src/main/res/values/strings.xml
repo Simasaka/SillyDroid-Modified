@@ -70,6 +70,11 @@
     <string name="floating_logs_full_exit_message">将停止酒馆后台服务、关闭悬浮球与常驻通知，并退出应用及最近任务。下次打开会自动重新启动服务，聊天和设置都不会丢失。</string>
     <string name="floating_logs_full_exit_confirm">结束并退出</string>
     <string name="floating_logs_full_exit_stop_timeout">停止酒馆服务超时，仍将继续退出。</string>
+    <string name="floating_logs_restart_service_button">重启本地服务</string>
+    <string name="floating_logs_restart_service_title">重启本地酒馆服务？</string>
+    <string name="floating_logs_restart_service_message">将停止并重新启动酒馆后台服务，用于恢复长时间切后台后出现的白屏 / 黑屏或页面无响应。重启期间当前会话会短暂中断，聊天和设置都不会丢失，服务就绪后页面会自动刷新。</string>
+    <string name="floating_logs_restart_service_confirm">重启服务</string>
+    <string name="floating_logs_restart_service_started">正在重启本地服务…</string>
     <string name="floating_logs_feedback_title">提交反馈</string>
     <string name="floating_logs_feedback_message">可选填问题详情，也可以附截图。只有你手动选择的图片才会随反馈发送 🔒\n提交后会在后台处理，不影响继续使用。</string>
     <string name="floating_logs_feedback_hint">问题详情（选填）</string>

@@ -508,6 +508,14 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/floating_logs_feedback_button" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/floatingLogsRestartServiceButton"
+                        style="@style/Widget.SillyDroid.FloatingLogsCompactButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/sillydroid_space_sm"
+                        android:text="@string/floating_logs_restart_service_button" />
                 </LinearLayout>
 
                 <!-- 彻底退出是破坏当前会话的操作，单独占一行并用 error 色强调，避免与其它按钮挤在一起误触。 -->
