@@ -1,6 +1,6 @@
 # 完整 APK 下载
 
-## 当前版本：v1.0.1.1-tavern.1.19.0（2026-11-11 新增重启本地服务按钮）
+## 当前版本：v1.0.1.1-tavern.1.19.0（2026-11-12 修复美化特效闪动）
 
 - **直接下载**：[app-debug.apk](https://github.com/Simasaka/SillyDroid-Modified/releases/download/v1.0.1.1-tavern.1.19.0/app-debug.apk)
 - **Release 页面**：[v1.0.1.1-tavern.1.19.0](https://github.com/Simasaka/SillyDroid-Modified/releases/tag/v1.0.1.1-tavern.1.19.0)
@@ -8,8 +8,8 @@
 | 项目 | 值 |
 | --- | --- |
 | 文件名 | `app-debug.apk` |
-| 大小 | 335,945,610 字节（约 320 MB） |
-| SHA-256 | `a7d4c031cfa92fc411f094b95e7c933eb6d59cbe48cc365b1de60c46b9cdbf5d` |
+| 大小 | 335,946,126 字节（约 320 MB） |
+| SHA-256 | `891c66b87d9b29a92bdf59b34cc761fe53cd757caea86d3871aa975798cba84a` |
 | versionName | `1.0.1.1+tavern.1.19.0` |
 | versionCode | `1810001001` |
 | 包名 | `com.jm.sillydroid.debug` |

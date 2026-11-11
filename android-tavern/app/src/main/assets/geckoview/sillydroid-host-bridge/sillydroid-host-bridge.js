@@ -1708,6 +1708,15 @@
         }
         let scrolling = false;
         let restoreTimer = 0;
+        // 美化脚本的内部自动滚动同样会派发 scroll 事件：静置时反复「禁用-恢复」表现为阴影边缘
+        // 不停闪动，停手恢复后再次触发则表现为连闪几下。因此特效只在最近一次用户输入
+        // （真实拖拽/滚轮/按键）晚于上一次恢复时才开启；恢复之后的程序性滚动一律忽略，
+        // 一次滑动手势至多产生一次可见的恢复过渡。
+        let lastUserInputAt = 0;
+        let lastRestoreAt = 0;
+        function markUserInput() {
+          lastUserInputAt = performance.now();
+        }
         function endScroll() {
           if (restoreTimer) {
             clearTimeout(restoreTimer);
@@ -1716,9 +1725,13 @@
           if (scrolling) {
             scrolling = false;
             root.removeAttribute('data-sillydroid-scrolling');
+            lastRestoreAt = performance.now();
           }
         }
         function beginScroll() {
+          if (lastUserInputAt <= lastRestoreAt) {
+            return;
+          }
           if (!scrolling) {
             scrolling = true;
             root.setAttribute('data-sillydroid-scrolling', 'true');
@@ -1728,6 +1741,11 @@
           }
           restoreTimer = window.setTimeout(endScroll, 200);
         }
+        // 只认会产生滚动的输入：touchstart/pointerdown 的点击不算，避免点一下按钮后
+        // 脚本自动滚动被误判成用户滚动。
+        ['touchmove', 'wheel', 'keydown'].forEach(function (type) {
+          window.addEventListener(type, markUserInput, { capture: true, passive: true });
+        });
         // scroll 不冒泡，用捕获阶段监听任意滚动容器（如 #chat）；passive 避免阻塞滚动线程。
         window.addEventListener('scroll', beginScroll, { capture: true, passive: true });
         if ('onscrollend' in window) {
