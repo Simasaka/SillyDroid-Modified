@@ -1,9 +1,9 @@
 # 完整 APK 下载
 
-## 当前版本：v1.0.1.1-tavern.1.19.0（2026-11-12 修复美化特效闪动）
+## 当前版本：v1.0.1.1-tavern.1.19.0-r2（2026-11-12 修复美化特效闪动）
 
-- **直接下载**：[app-debug.apk](https://github.com/Simasaka/SillyDroid-Modified/releases/download/v1.0.1.1-tavern.1.19.0/app-debug.apk)
-- **Release 页面**：[v1.0.1.1-tavern.1.19.0](https://github.com/Simasaka/SillyDroid-Modified/releases/tag/v1.0.1.1-tavern.1.19.0)
+- **直接下载**：[app-debug.apk](https://github.com/Simasaka/SillyDroid-Modified/releases/download/v1.0.1.1-tavern.1.19.0-r2/app-debug.apk)
+- **Release 页面**：[v1.0.1.1-tavern.1.19.0-r2](https://github.com/Simasaka/SillyDroid-Modified/releases/tag/v1.0.1.1-tavern.1.19.0-r2)
 
 | 项目 | 值 |
 | --- | --- |
