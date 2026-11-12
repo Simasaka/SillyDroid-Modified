@@ -10,11 +10,14 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Debug
 import android.os.Process
+import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
 import android.widget.ArrayAdapter
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.TextView
@@ -611,6 +614,39 @@ class TavernGeckoViewHost(
         }
 
         session.promptDelegate = object : GeckoSession.PromptDelegate {
+            override fun onAlertPrompt(
+                session: GeckoSession,
+                prompt: GeckoSession.PromptDelegate.AlertPrompt
+            ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+                recordCriticalHostDiagnostic(
+                    category = "geckoview",
+                    body = "event=alert_prompt_requested title=${normalizeDiagnosticValue(prompt.title)} message=${normalizeDiagnosticValue(prompt.message)}"
+                )
+                return showAlertPrompt(prompt)
+            }
+
+            override fun onButtonPrompt(
+                session: GeckoSession,
+                prompt: GeckoSession.PromptDelegate.ButtonPrompt
+            ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+                recordCriticalHostDiagnostic(
+                    category = "geckoview",
+                    body = "event=confirm_prompt_requested title=${normalizeDiagnosticValue(prompt.title)} message=${normalizeDiagnosticValue(prompt.message)}"
+                )
+                return showButtonPrompt(prompt)
+            }
+
+            override fun onTextPrompt(
+                session: GeckoSession,
+                prompt: GeckoSession.PromptDelegate.TextPrompt
+            ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+                recordCriticalHostDiagnostic(
+                    category = "geckoview",
+                    body = "event=text_prompt_requested title=${normalizeDiagnosticValue(prompt.title)} message=${normalizeDiagnosticValue(prompt.message)}"
+                )
+                return showTextPrompt(prompt)
+            }
+
             override fun onChoicePrompt(
                 session: GeckoSession,
                 prompt: GeckoSession.PromptDelegate.ChoicePrompt
@@ -985,6 +1021,151 @@ class TavernGeckoViewHost(
                 complete(prompt.dismiss())
             }
             .show()
+    }
+
+    private fun showAlertPrompt(
+        prompt: GeckoSession.PromptDelegate.AlertPrompt
+    ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse> {
+        val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+        var completed = false
+        fun complete(response: GeckoSession.PromptDelegate.PromptResponse) {
+            if (completed) return
+            completed = true
+            result.complete(response)
+        }
+
+        activity.runOnUiThread {
+            runCatching {
+                MaterialAlertDialogBuilder(activity)
+                    .setTitle(resolvePromptTitle(prompt.title, R.string.geckoview_alert_prompt_title))
+                    .setMessage(prompt.message.orEmpty())
+                    // GV 151 的 AlertPrompt 只能 dismiss 不能 confirm；无论点确定还是外部关闭都必须应答，
+                    // 否则页面里等待弹窗的脚本会永久挂起。
+                    .setPositiveButton(android.R.string.ok) { _, _ -> complete(prompt.dismiss()) }
+                    .setOnCancelListener { complete(prompt.dismiss()) }
+                    .show()
+            }.onFailure { error ->
+                recordCriticalHostDiagnostic(
+                    category = "geckoview",
+                    body = "event=alert_prompt_show_failed error=${error.javaClass.simpleName} message=${normalizeDiagnosticValue(error.message)}"
+                )
+                complete(prompt.dismiss())
+            }
+        }
+        return result
+    }
+
+    private fun showButtonPrompt(
+        prompt: GeckoSession.PromptDelegate.ButtonPrompt
+    ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse> {
+        val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+        var completed = false
+        fun complete(response: GeckoSession.PromptDelegate.PromptResponse) {
+            if (completed) return
+            completed = true
+            result.complete(response)
+        }
+
+        activity.runOnUiThread {
+            runCatching {
+                MaterialAlertDialogBuilder(activity)
+                    .setTitle(resolvePromptTitle(prompt.title, R.string.geckoview_confirm_prompt_title))
+                    .setMessage(prompt.message.orEmpty())
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        recordCriticalHostDiagnostic(category = "geckoview", body = "event=confirm_prompt_accepted")
+                        complete(prompt.confirm(GeckoSession.PromptDelegate.ButtonPrompt.Type.POSITIVE))
+                    }
+                    .setNegativeButton(android.R.string.cancel) { _, _ ->
+                        recordCriticalHostDiagnostic(category = "geckoview", body = "event=confirm_prompt_declined")
+                        complete(prompt.confirm(GeckoSession.PromptDelegate.ButtonPrompt.Type.NEGATIVE))
+                    }
+                    .setOnCancelListener {
+                        recordCriticalHostDiagnostic(category = "geckoview", body = "event=confirm_prompt_declined")
+                        complete(prompt.confirm(GeckoSession.PromptDelegate.ButtonPrompt.Type.NEGATIVE))
+                    }
+                    .show()
+            }.onFailure { error ->
+                recordCriticalHostDiagnostic(
+                    category = "geckoview",
+                    body = "event=confirm_prompt_show_failed error=${error.javaClass.simpleName} message=${normalizeDiagnosticValue(error.message)}"
+                )
+                complete(prompt.confirm(GeckoSession.PromptDelegate.ButtonPrompt.Type.NEGATIVE))
+            }
+        }
+        return result
+    }
+
+    private fun showTextPrompt(
+        prompt: GeckoSession.PromptDelegate.TextPrompt
+    ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse> {
+        val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+        var completed = false
+        fun complete(response: GeckoSession.PromptDelegate.PromptResponse) {
+            if (completed) return
+            completed = true
+            result.complete(response)
+        }
+
+        activity.runOnUiThread {
+            runCatching {
+                val input = EditText(activity).apply {
+                    setText(prompt.defaultValue.orEmpty())
+                    setSelectAllOnFocus(true)
+                    inputType = InputType.TYPE_CLASS_TEXT
+                }
+                val wrapper = LinearLayout(activity).apply {
+                    val padding = (resources.displayMetrics.density * 20).toInt()
+                    setPadding(padding, padding / 2, padding, 0)
+                    addView(
+                        input,
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        )
+                    )
+                }
+                val dialog = MaterialAlertDialogBuilder(activity)
+                    .setTitle(resolvePromptTitle(prompt.title, R.string.geckoview_text_prompt_title))
+                    .setMessage(prompt.message?.takeIf { message -> message.isNotBlank() })
+                    .setView(wrapper)
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        recordCriticalHostDiagnostic(
+                            category = "geckoview",
+                            body = "event=text_prompt_submitted valueLength=${input.text.length}"
+                        )
+                        complete(prompt.confirm(input.text.toString()))
+                    }
+                    .setNegativeButton(android.R.string.cancel) { _, _ ->
+                        recordCriticalHostDiagnostic(category = "geckoview", body = "event=text_prompt_cancelled")
+                        complete(prompt.dismiss())
+                    }
+                    .setOnCancelListener {
+                        recordCriticalHostDiagnostic(category = "geckoview", body = "event=text_prompt_cancelled")
+                        complete(prompt.dismiss())
+                    }
+                    .create()
+                dialog.setOnShowListener {
+                    input.requestFocus()
+                    ContextCompat.getSystemService(activity, InputMethodManager::class.java)
+                        ?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+                }
+                dialog.show()
+            }.onFailure { error ->
+                recordCriticalHostDiagnostic(
+                    category = "geckoview",
+                    body = "event=text_prompt_show_failed error=${error.javaClass.simpleName} message=${normalizeDiagnosticValue(error.message)}"
+                )
+                complete(prompt.dismiss())
+            }
+        }
+        return result
+    }
+
+    private fun resolvePromptTitle(title: String?, fallbackTitleRes: Int): String {
+        return title
+            ?.trim()
+            ?.takeIf { value -> value.isNotEmpty() }
+            ?: activity.getString(fallbackTitleRes)
     }
 
     private fun resolveChoicePromptTitle(prompt: GeckoSession.PromptDelegate.ChoicePrompt): String {
