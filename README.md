@@ -22,7 +22,7 @@
 | 项目 | 说明 |
 | --- | --- |
 | 完整 APK | [APK_DOWNLOAD.md](APK_DOWNLOAD.md) · [Release 页面](https://github.com/Simasaka/SillyDroid-Modified/releases)（内置 `linux-arm64` 运行时与服务端，安装即用） |
-| 当前版本 | `v1.0.1.1-tavern.1.19.0-r3`（versionCode `1810001001`） |
+| 当前版本 | `v1.0.1.1-tavern.1.19.0-r4`（versionCode `1810001001`） |
 | 安装方式 | debug 签名，与此前安装包一致，覆盖安装保留全部数据 |
 | 更新说明 | 逐版本见 [CHANGELOG.md](CHANGELOG.md) |
 
