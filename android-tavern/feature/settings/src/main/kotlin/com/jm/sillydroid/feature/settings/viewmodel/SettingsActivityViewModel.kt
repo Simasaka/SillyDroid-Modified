@@ -125,14 +125,21 @@ class SettingsActivityViewModel(
         if (hostPreferencesRepository.launchWebViewOnReady != launchWebViewOnReady) {
             hostPreferencesRepository.launchWebViewOnReady = launchWebViewOnReady
         }
-        if (enabled && hostPreferencesRepository.floatingBrowserEnabled) {
-            // 纯后台模式根本不创建浏览器表面，不能保留一个无法兑现的悬浮浏览器开关。
-            hostPreferencesRepository.floatingBrowserEnabled = false
+        if (enabled) {
+            // 纯后台模式根本不创建浏览器表面，不能保留一个无法兑现的悬浮浏览器开关；
+            // 先记下用户原来的选择，退出后台模式时恢复。
+            if (hostPreferencesRepository.floatingBrowserEnabled) {
+                hostPreferencesRepository.floatingBrowserEnabledBeforeBackgroundOnly = true
+                hostPreferencesRepository.floatingBrowserEnabled = false
+            }
+        } else if (hostPreferencesRepository.floatingBrowserEnabledBeforeBackgroundOnly) {
+            hostPreferencesRepository.floatingBrowserEnabledBeforeBackgroundOnly = false
+            hostPreferencesRepository.floatingBrowserEnabled = true
         }
         _uiState.update { current ->
             current.copy(
                 backgroundOnlyModeEnabled = enabled,
-                floatingBrowserEnabled = if (enabled) false else current.floatingBrowserEnabled
+                floatingBrowserEnabled = hostPreferencesRepository.floatingBrowserEnabled
             )
         }
     }

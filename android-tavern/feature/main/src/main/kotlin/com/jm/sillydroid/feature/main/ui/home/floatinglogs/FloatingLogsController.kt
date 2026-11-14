@@ -8,6 +8,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.ViewTreeObserver
 import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -90,6 +91,14 @@ class FloatingLogsController(
     private var pendingFeedbackImagePreviewBinding: FeedbackImagePreviewBinding? = null
     private val bubbleTouchSlop by lazy { ViewConfiguration.get(activity).scaledTouchSlop }
 
+    // setText 之后的 post 会跑在布局 pass 之前，拿到旧高度把滚动钳在顶部；后台模式 onStop
+    // 停掉刷新循环后更没有第二次纠正机会。改为布局完成后按最新高度贴底，不依赖刷新循环。
+    private val stickToBottomLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
+        if (autoScrollEnabled && views.panel.isVisible) {
+            scrollToBottomNow()
+        }
+    }
+
     val isPanelVisible: Boolean
         get() = views.panel.isVisible
 
@@ -125,11 +134,16 @@ class FloatingLogsController(
                 views.scrollToBottomButton.isVisible = false
             } else {
                 views.scrollToBottomButton.isVisible = true
+                // 可选择的日志 TextView 抢焦点时会把滚动拉回光标处；自动滚动开启期间立刻贴回底部。
+                if (autoScrollEnabled && !views.scrollbarThumb.isPressed) {
+                    scrollToBottomNow()
+                }
             }
         }
         configureControlButtons()
         configureBrowserZoomControls()
         scrollThumbController.configure()
+        views.content.viewTreeObserver.addOnGlobalLayoutListener(stickToBottomLayoutListener)
         updateControlLabels()
         activity.lifecycle.addObserver(this)
     }
@@ -146,6 +160,7 @@ class FloatingLogsController(
 
     override fun onDestroy(owner: LifecycleOwner) {
         stopRefreshLoop()
+        views.content.viewTreeObserver.removeOnGlobalLayoutListener(stickToBottomLayoutListener)
         scrollThumbController.close()
     }
 
@@ -191,6 +206,9 @@ class FloatingLogsController(
                     views.panel.alpha = 1f
                     autoScrollEnabled = true
                     views.scrollToBottomButton.isVisible = false
+                    // 让面板容器持有焦点，避免可选择日志 TextView 抢焦点后把滚动拉回顶部。
+                    views.panel.isFocusableInTouchMode = true
+                    views.panel.requestFocus()
                     scrollToBottom()
                     startRefreshLoop()
                 }
@@ -516,26 +534,21 @@ class FloatingLogsController(
     }
 
     private fun scrollToBottom() {
-        views.content.post {
-            if (!views.panel.isVisible) {
-                return@post
-            }
+        views.content.post { scrollToBottomNow() }
+    }
 
-            val visibleHeight = views.scroll.height - views.scroll.paddingTop - views.scroll.paddingBottom
-            if (visibleHeight <= 0) {
-                return@post
-            }
-
-            val layoutBottom = views.content.layout?.let { layout ->
-                if (views.content.lineCount > 0) {
-                    layout.getLineBottom(views.content.lineCount - 1)
-                } else {
-                    views.content.height
-                }
-            } ?: views.content.height
-            val targetScrollY = (layoutBottom + views.content.paddingBottom - visibleHeight).coerceAtLeast(0)
-            views.scroll.scrollTo(0, targetScrollY)
+    private fun scrollToBottomNow() {
+        if (!views.panel.isVisible) {
+            return
         }
+
+        val visibleHeight = views.scroll.height - views.scroll.paddingTop - views.scroll.paddingBottom
+        if (visibleHeight <= 0) {
+            return
+        }
+
+        val targetScrollY = (views.content.height - visibleHeight).coerceAtLeast(0)
+        views.scroll.scrollTo(0, targetScrollY)
     }
 
     private fun isScrolledToBottom(): Boolean {

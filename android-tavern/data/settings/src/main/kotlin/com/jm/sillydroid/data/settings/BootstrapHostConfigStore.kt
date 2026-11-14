@@ -45,6 +45,7 @@ class BootstrapHostConfigStore(context: Context) : HostPreferencesRepository {
         private const val terminalCursorBlinkEnabledKey = "terminal-cursor-blink-enabled"
         private const val terminalExtraKeysEnabledKey = "terminal-extra-keys-enabled"
         private const val floatingBrowserEnabledKey = "floating-browser-enabled"
+        private const val floatingBrowserEnabledBeforeBackgroundOnlyKey = "floating-browser-enabled-before-background-only"
         private const val floatingBrowserXKey = "floating-browser-x"
         private const val floatingBrowserYKey = "floating-browser-y"
         private const val floatingLogBubbleEnabledKey = "floating-log-bubble-enabled"
@@ -286,6 +287,14 @@ class BootstrapHostConfigStore(context: Context) : HostPreferencesRepository {
         set(value) {
             preferences.edit()
                 .putBoolean(floatingBrowserEnabledKey, value)
+                .apply()
+        }
+
+    override var floatingBrowserEnabledBeforeBackgroundOnly: Boolean
+        get() = preferences.getBoolean(floatingBrowserEnabledBeforeBackgroundOnlyKey, false)
+        set(value) {
+            preferences.edit()
+                .putBoolean(floatingBrowserEnabledBeforeBackgroundOnlyKey, value)
                 .apply()
         }
 

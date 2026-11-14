@@ -204,6 +204,7 @@ class SettingsActivityViewModelResultFlagsTest {
         override var terminalCursorBlinkEnabled: Boolean = true
         override var terminalExtraKeysEnabled: Boolean = true
         override var floatingBrowserEnabled: Boolean = false
+        override var floatingBrowserEnabledBeforeBackgroundOnly: Boolean = false
         override var floatingBrowserPosition: com.jm.sillydroid.core.model.settings.FloatingBrowserPosition? = null
         override var floatingLogBubbleEnabled: Boolean = false
         override var floatingLogRefreshIntervalMillis: Int = 1_000

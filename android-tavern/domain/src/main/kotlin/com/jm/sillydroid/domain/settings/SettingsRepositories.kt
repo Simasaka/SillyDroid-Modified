@@ -71,6 +71,8 @@ interface HostPreferencesRepository {
     var terminalExtraKeysEnabled: Boolean
     // 后台悬浮浏览器必须在显式 overlay 授权后由设置页写入；默认关闭。
     var floatingBrowserEnabled: Boolean
+    // 进入纯后台模式前的悬浮浏览器开关快照；退出后台模式时据此恢复，避免用户设置被吞掉。
+    var floatingBrowserEnabledBeforeBackgroundOnly: Boolean
     // 系统 overlay 球的位置独立保存，不能复用应用内悬浮日志球位置。
     var floatingBrowserPosition: FloatingBrowserPosition?
     var floatingLogBubbleEnabled: Boolean

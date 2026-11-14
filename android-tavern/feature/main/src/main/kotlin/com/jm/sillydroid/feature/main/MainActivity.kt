@@ -206,7 +206,13 @@ class MainActivity : AppCompatActivity() {
             currentSnapshot = { processManager.currentSnapshot() },
             canOpenSettings = { snapshot -> bootstrapOverlayHost.canOpenBootstrapSettings(snapshot) },
             openSettings = { bootstrapOverlayHost.openBootstrapSettings() },
-            openCurrentPageInBrowser = { browserHost.openCurrentPageInExternalBrowser() },
+            openCurrentPageInBrowser = {
+                val opened = browserHost.openCurrentPageInExternalBrowser()
+                if (opened) {
+                    switchToBackgroundOnlyModeForExternalBrowser()
+                }
+                opened
+            },
             onRequestFullExit = ::performFullExit,
             onRequestRestartService = ::performRestartLocalService,
             reloadTavernWebView = { browserHost.reloadTavernWebView(source = "floating_logs_button") },
@@ -412,6 +418,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun shouldUseWebViewSurface(): Boolean = hostConfigStore.launchWebViewOnReady
+
+    /** 外开浏览器成功后切到纯后台模式：页面已交给系统浏览器，宿主不再需要内置表面。 */
+    private fun switchToBackgroundOnlyModeForExternalBrowser() {
+        if (!shouldUseWebViewSurface()) {
+            return
+        }
+        if (hostConfigStore.floatingBrowserEnabled) {
+            hostConfigStore.floatingBrowserEnabledBeforeBackgroundOnly = true
+            hostConfigStore.floatingBrowserEnabled = false
+        }
+        hostConfigStore.launchWebViewOnReady = false
+        recordDefaultHostDiagnostic(
+            category = "floating-browser",
+            body = "event=external_browser_open action=switch_background_only"
+        )
+        recreate()
+    }
 
     /** 只有真实浏览器模式、用户开关和系统权限同时成立时才预启动 overlay 服务。 */
     private fun shouldPrepareFloatingBrowser(): Boolean {

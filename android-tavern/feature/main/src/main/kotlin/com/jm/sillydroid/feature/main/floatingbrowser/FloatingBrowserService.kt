@@ -509,6 +509,18 @@ class FloatingBrowserService : Service() {
         val scroll = android.widget.ScrollView(this).apply {
             addView(body)
         }
+        // 打开即贴底显示最新日志；用户往上翻后暂停跟随，翻回底部自动恢复。
+        var followLatest = true
+        val bottomTolerancePx = dp(8)
+        scroll.viewTreeObserver.addOnScrollChangedListener {
+            val child = scroll.getChildAt(0) ?: return@addOnScrollChangedListener
+            followLatest = child.bottom - (scroll.height + scroll.scrollY) <= bottomTolerancePx
+        }
+        scroll.viewTreeObserver.addOnGlobalLayoutListener {
+            if (followLatest) {
+                scroll.scrollTo(0, (body.height - scroll.height).coerceAtLeast(0))
+            }
+        }
         panel.addView(
             title,
             LinearLayout.LayoutParams(
@@ -524,7 +536,7 @@ class FloatingBrowserService : Service() {
         val metrics = resources.displayMetrics
         val params = WindowManager.LayoutParams(
             (metrics.widthPixels * 0.88f).toInt(),
-            (metrics.heightPixels * 0.45f).toInt(),
+            (metrics.heightPixels * 0.6f).toInt(),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             } else {
@@ -547,12 +559,17 @@ class FloatingBrowserService : Service() {
         logsPanelParams = params
         logsPanelBody = body
 
+        var lastTail: String? = null
         val refresh = object : Runnable {
             override fun run() {
                 if (logsPanelView == null) {
                     return
                 }
-                logsPanelBody?.text = readServerLogTail()
+                val tail = readServerLogTail()
+                if (tail != lastTail) {
+                    lastTail = tail
+                    logsPanelBody?.text = tail
+                }
                 mainHandler.postDelayed(this, LOGS_REFRESH_INTERVAL_MS)
             }
         }
