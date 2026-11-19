@@ -78,6 +78,8 @@ interface HostPreferencesRepository {
     var floatingLogBubbleEnabled: Boolean
     var floatingLogRefreshIntervalMillis: Int
     var floatingLogBubblePosition: FloatingLogBubblePosition?
+    // 悬浮日志球不透明度（20~100）；只调小球整体透明度，降低边缘黑球对页面视野的遮挡。
+    var floatingLogBubbleOpacityPercent: Int
     var defaultExtensionsPromptConsumed: Boolean
     var crashLogUploadEnabled: Boolean
     var crashLogUploadPromptConsumed: Boolean

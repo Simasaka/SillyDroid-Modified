@@ -9,6 +9,8 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Debug
+import android.os.Handler
+import android.os.Looper
 import android.os.Process
 import android.text.InputType
 import android.util.TypedValue
@@ -91,6 +93,9 @@ class TavernGeckoViewHost(
     companion object {
         private var sharedRuntime: GeckoRuntime? = null
 
+        /** 首帧遮罩兜底超时：安装后首启等慢速场景实测可达 ~50s，阈值放宽到 60s，超时按 renderer 丢失重建。 */
+        private const val INITIAL_PAGE_PAINT_TIMEOUT_MS = 60_000L
+
         @Synchronized
         private fun runtime(activity: AppCompatActivity, debugDiagnosticsEnabled: Boolean): GeckoRuntime {
             sharedRuntime?.let { return it }
@@ -143,6 +148,8 @@ class TavernGeckoViewHost(
     private var currentUrl: String = retainedGeckoSurface.currentUrl
     private var configured = false
     private var waitingForInitialPagePaint = false
+    private val paintTimeoutHandler = Handler(Looper.getMainLooper())
+    private val initialPagePaintTimeoutRunnable = Runnable { onInitialPagePaintTimeout() }
     private var selectionActionPopup: PopupWindow? = null
     private val selectionActionEntries = listOf(
         GeckoSession.SelectionActionDelegate.ACTION_COPY to R.string.geckoview_selection_action_copy,
@@ -307,6 +314,7 @@ class TavernGeckoViewHost(
     override fun hideForBootstrapRestart() {
         homeViewModel.isPullGestureRefreshing = false
         waitingForInitialPagePaint = false
+        paintTimeoutHandler.removeCallbacks(initialPagePaintTimeoutRunnable)
         dismissSelectionActions()
         session.setActive(false)
         session.setFocused(false)
@@ -400,6 +408,7 @@ class TavernGeckoViewHost(
 
     /** 释放 Activity delegate；普通销毁必须保留进程安全 native bridge，renderer 销毁才关闭。 */
     private fun releaseGeckoActivityBindings(reason: String, closeProcessBridge: Boolean) {
+        paintTimeoutHandler.removeCallbacks(initialPagePaintTimeoutRunnable)
         httpAuthPromptController.dismissActivePrompt(reason = "geckoview_$reason")
         dismissSelectionActions()
         if (closeProcessBridge) {
@@ -409,7 +418,8 @@ class TavernGeckoViewHost(
         // Session/页面继续由进程 store 持有；所有 Activity delegate 必须解除，等待下个 Activity 重新注册。
         session.navigationDelegate = null
         session.progressDelegate = null
-        session.contentDelegate = null
+        // contentDelegate 不能留空：无宿主期间内容进程被杀时仍需 guard 回收僵尸表面。
+        floatingBrowserSurfaceStore.installGeckoCrashGuard(geckoView, session)
         session.permissionDelegate = null
         session.promptDelegate = null
         session.selectionActionDelegate = null
@@ -1451,10 +1461,24 @@ class TavernGeckoViewHost(
         // GeckoView 在页面内容绘制前可能短暂露出白色 compositor surface；保留深色启动遮罩挡住空白帧。
         bootstrapOverlay.isVisible = true
         bootstrapOverlay.bringToFront()
+        paintTimeoutHandler.removeCallbacks(initialPagePaintTimeoutRunnable)
+        paintTimeoutHandler.postDelayed(initialPagePaintTimeoutRunnable, INITIAL_PAGE_PAINT_TIMEOUT_MS)
         recordHostDiagnostic(
             category = "geckoview",
             body = "event=initial_paint_cover_show reason=$reason ${currentGeckoDiagnosticState()}"
         )
+    }
+
+    /** 遮罩超时仍未收到绘制完成：会话可能已僵尸，按 renderer 丢失销毁表面并重建 Activity。 */
+    private fun onInitialPagePaintTimeout() {
+        if (!waitingForInitialPagePaint || browserSurfaceDestroyed) {
+            return
+        }
+        recordCriticalHostDiagnostic(
+            category = "geckoview",
+            body = "event=initial_page_paint_timeout timeoutMs=$INITIAL_PAGE_PAINT_TIMEOUT_MS ${currentGeckoDiagnosticState()}"
+        )
+        recordGeckoRendererGone(didCrash = false, source = "initial_page_paint_timeout")
     }
 
     /** 只根据进程级 GeckoSession 与 GeckoView 的真实状态判断迁移资格。 */
@@ -1509,6 +1533,7 @@ class TavernGeckoViewHost(
             return
         }
         waitingForInitialPagePaint = false
+        paintTimeoutHandler.removeCallbacks(initialPagePaintTimeoutRunnable)
         bootstrapOverlay.isVisible = false
         updateRefreshLayoutEnabled()
         recordHostDiagnostic(

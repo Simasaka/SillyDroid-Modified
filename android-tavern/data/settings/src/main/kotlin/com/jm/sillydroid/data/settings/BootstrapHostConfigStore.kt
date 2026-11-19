@@ -52,6 +52,7 @@ class BootstrapHostConfigStore(context: Context) : HostPreferencesRepository {
         private const val floatingLogRefreshIntervalMillisKey = "floating-log-refresh-interval-millis"
         private const val floatingLogBubbleXKey = "floating-log-bubble-x"
         private const val floatingLogBubbleYKey = "floating-log-bubble-y"
+        private const val floatingLogBubbleOpacityPercentKey = "floating-log-bubble-opacity-percent"
         private const val defaultExtensionsPromptConsumedKey = "default-extensions-prompt-consumed"
         private const val crashLogUploadEnabledKey = "crash-log-upload-enabled"
         private const val crashLogUploadPromptConsumedKey = "crash-log-upload-prompt-consumed"
@@ -366,6 +367,14 @@ class BootstrapHostConfigStore(context: Context) : HostPreferencesRepository {
                     putFloat(floatingLogBubbleYKey, sanitizeFraction(value.verticalFraction))
                 }
             }.apply()
+        }
+
+    override var floatingLogBubbleOpacityPercent: Int
+        get() = preferences.getInt(floatingLogBubbleOpacityPercentKey, 100).coerceIn(20, 100)
+        set(value) {
+            preferences.edit()
+                .putInt(floatingLogBubbleOpacityPercentKey, value.coerceIn(20, 100))
+                .apply()
         }
 
     override var defaultExtensionsPromptConsumed: Boolean

@@ -142,6 +142,7 @@ class FloatingLogsController(
         }
         configureControlButtons()
         configureBrowserZoomControls()
+        configureBubbleOpacityControls()
         scrollThumbController.configure()
         views.content.viewTreeObserver.addOnGlobalLayoutListener(stickToBottomLayoutListener)
         updateControlLabels()
@@ -688,6 +689,47 @@ class FloatingLogsController(
             text.browserPageZoomLabel(BrowserZoomOptions.sanitizeViewportDensity(percent))
     }
 
+    private fun configureBubbleOpacityControls() {
+        views.bubbleOpacitySlider.max = BUBBLE_OPACITY_MAX_PERCENT - BUBBLE_OPACITY_MIN_PERCENT
+        views.bubbleOpacitySlider.progress =
+            preferences.floatingLogBubbleOpacityPercent - BUBBLE_OPACITY_MIN_PERCENT
+        updateBubbleOpacityLabel(preferences.floatingLogBubbleOpacityPercent)
+        applyBubbleOpacity(preferences.floatingLogBubbleOpacityPercent)
+        views.bubbleOpacitySlider.setOnSeekBarChangeListener(
+            object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                    val percent = progress + BUBBLE_OPACITY_MIN_PERCENT
+                    updateBubbleOpacityLabel(percent)
+                    applyBubbleOpacity(percent)
+                    if (fromUser && preferences.floatingLogBubbleOpacityPercent != percent) {
+                        preferences.floatingLogBubbleOpacityPercent = percent
+                    }
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+
+                override fun onStopTrackingTouch(seekBar: SeekBar) {
+                    val percent = seekBar.progress + BUBBLE_OPACITY_MIN_PERCENT
+                    if (preferences.floatingLogBubbleOpacityPercent != percent) {
+                        preferences.floatingLogBubbleOpacityPercent = percent
+                    }
+                    updateBubbleOpacityLabel(percent)
+                }
+            }
+        )
+    }
+
+    private fun updateBubbleOpacityLabel(percent: Int) {
+        views.bubbleOpacityLabel.text =
+            text.bubbleOpacityLabel(percent.coerceIn(BUBBLE_OPACITY_MIN_PERCENT, BUBBLE_OPACITY_MAX_PERCENT))
+    }
+
+    /** 只调整悬浮日志球整体透明度，降低屏幕边缘黑球对页面视野的遮挡；面板不受影响。 */
+    private fun applyBubbleOpacity(percent: Int) {
+        views.bubble.alpha =
+            percent.coerceIn(BUBBLE_OPACITY_MIN_PERCENT, BUBBLE_OPACITY_MAX_PERCENT) / 100f
+    }
+
     private fun showSelectDialog() {
         if (availableEntries.isEmpty()) {
             return
@@ -1068,6 +1110,11 @@ class FloatingLogsController(
             }
         }
     }
+
+    companion object {
+        private const val BUBBLE_OPACITY_MIN_PERCENT = 20
+        private const val BUBBLE_OPACITY_MAX_PERCENT = 100
+    }
 }
 
 data class FloatingLogsViews(
@@ -1089,6 +1136,8 @@ data class FloatingLogsViews(
     val browserZoomSlider: SeekBar,
     val browserPageZoomLabel: TextView,
     val browserPageZoomSlider: SeekBar,
+    val bubbleOpacityLabel: TextView,
+    val bubbleOpacitySlider: SeekBar,
     val openSettingsButton: MaterialButton,
     val openBrowserButton: MaterialButton,
     val feedbackButton: MaterialButton,
@@ -1116,6 +1165,7 @@ data class FloatingLogsText(
     val downloadFailed: () -> String,
     val browserZoomLabel: (percent: Int) -> String,
     val browserPageZoomLabel: (percent: Int) -> String,
+    val bubbleOpacityLabel: (percent: Int) -> String,
     val clearConfirmTitle: () -> String,
     val clearConfirmMessage: () -> String,
     val clearConfirmPositiveLabel: () -> String,

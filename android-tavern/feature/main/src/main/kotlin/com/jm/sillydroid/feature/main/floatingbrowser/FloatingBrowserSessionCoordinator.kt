@@ -285,10 +285,35 @@ class FloatingBrowserSurfaceStore : FloatingBrowserSurfaceController {
             activeSurface?.destroy()
             RetainedGeckoSurface(
                 contextWrapper = MutableContextWrapper(activityContext.applicationContext)
-            ).also { created -> activeSurface = created }
+            ).also { created ->
+                activeSurface = created
+                installGeckoCrashGuard(created.geckoView, created.session)
+            }
         }
         record.attachToActivity(activityContext = activityContext, attachTo = attachTo)
         return record
+    }
+
+    /**
+     * Activity 解绑后 session 不能没有 contentDelegate：内容进程可能在无宿主期间被系统杀死，
+     * 无人接收 onCrash/onKill 就会留下僵尸会话，下次回前台复用时黑屏且加载永远不完成。
+     * guard 只负责销毁进程级表面，下次 acquire 会创建全新 session/view。
+     */
+    @Synchronized
+    fun installGeckoCrashGuard(geckoView: GeckoView, session: GeckoSession) {
+        val record = activeSurface as? RetainedGeckoSurface ?: return
+        if (record.geckoView !== geckoView || record.session !== session) {
+            return
+        }
+        session.contentDelegate = object : GeckoSession.ContentDelegate {
+            override fun onCrash(session: GeckoSession) {
+                destroyGeckoIfSame(geckoView, session)
+            }
+
+            override fun onKill(session: GeckoSession) {
+                destroyGeckoIfSame(geckoView, session)
+            }
+        }
     }
 
     /** Activity 销毁时解除对应容器并切回 Application Context，不销毁页面会话。 */

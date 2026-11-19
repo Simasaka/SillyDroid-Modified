@@ -44,10 +44,18 @@ class ApplicationForegroundTransitionCounter(
 class ApplicationForegroundStateStore(
     onForegroundChanged: (Boolean) -> Unit = {}
 ) : Application.ActivityLifecycleCallbacks, HostAppForegroundState {
-    private val transitionCounter = ApplicationForegroundTransitionCounter(onForegroundChanged)
+    private val foregroundListeners = java.util.concurrent.CopyOnWriteArrayList<(Boolean) -> Unit>()
+    private val transitionCounter = ApplicationForegroundTransitionCounter { inForeground ->
+        onForegroundChanged(inForeground)
+        foregroundListeners.forEach { listener -> listener(inForeground) }
+    }
 
     override val isInForeground: Boolean
         get() = transitionCounter.isInForeground
+
+    override fun addForegroundListener(listener: (Boolean) -> Unit) {
+        foregroundListeners.add(listener)
+    }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
 

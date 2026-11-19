@@ -58,6 +58,8 @@ class FloatingLogsHost(
     private val browserZoomSlider: SeekBar = activity.findViewById(R.id.floatingLogsBrowserZoomSlider)
     private val browserPageZoomLabel: TextView = activity.findViewById(R.id.floatingLogsBrowserPageZoomLabel)
     private val browserPageZoomSlider: SeekBar = activity.findViewById(R.id.floatingLogsBrowserPageZoomSlider)
+    private val bubbleOpacityLabel: TextView = activity.findViewById(R.id.floatingLogsBubbleOpacityLabel)
+    private val bubbleOpacitySlider: SeekBar = activity.findViewById(R.id.floatingLogsBubbleOpacitySlider)
     private val openSettingsButton: MaterialButton = activity.findViewById(R.id.floatingLogsOpenSettingsButton)
     private val openBrowserButton: MaterialButton = activity.findViewById(R.id.floatingLogsOpenBrowserButton)
     private val feedbackButton: MaterialButton = activity.findViewById(R.id.floatingLogsFeedbackButton)
@@ -107,6 +109,8 @@ class FloatingLogsHost(
                 browserZoomSlider = browserZoomSlider,
                 browserPageZoomLabel = browserPageZoomLabel,
                 browserPageZoomSlider = browserPageZoomSlider,
+                bubbleOpacityLabel = bubbleOpacityLabel,
+                bubbleOpacitySlider = bubbleOpacitySlider,
                 openSettingsButton = openSettingsButton,
                 openBrowserButton = openBrowserButton,
                 feedbackButton = feedbackButton,
@@ -133,6 +137,7 @@ class FloatingLogsHost(
                 downloadFailed = { activity.getString(R.string.floating_logs_download_failed) },
                 browserZoomLabel = { percent -> activity.getString(R.string.floating_logs_browser_zoom_label, percent) },
                 browserPageZoomLabel = { percent -> activity.getString(R.string.floating_logs_browser_page_zoom_label, percent) },
+                bubbleOpacityLabel = { percent -> activity.getString(R.string.floating_logs_bubble_opacity_label, percent) },
                 clearConfirmTitle = { activity.getString(R.string.bootstrap_settings_logs_clear_confirm_title) },
                 clearConfirmMessage = { activity.getString(R.string.bootstrap_settings_logs_clear_confirm_message) },
                 clearConfirmPositiveLabel = { activity.getString(R.string.bootstrap_settings_logs_clear) },

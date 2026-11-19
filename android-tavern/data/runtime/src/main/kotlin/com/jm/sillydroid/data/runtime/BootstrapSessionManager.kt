@@ -78,6 +78,7 @@ class BootstrapSessionManager(
     private var autoLaunchGitEnableJob: Job? = null
     private var observedTavernServerTailLogFileName: String? = null
     private var serverProcess: ManagedProcess? = null
+    private var promotedServerPid: Int = -1
     private var autoRestartBudget = BootstrapAutoRestartBudget(
         attemptLimit = autoRestartAttemptLimit,
         windowMillis = autoRestartWindowMillis
@@ -134,6 +135,14 @@ class BootstrapSessionManager(
     private var currentSnapshot = BootstrapSessionRuntimeStore.snapshot.value
     private var rootfsAssetsRefreshed = false
 
+    init {
+        appForegroundState.addForegroundListener { inForeground ->
+            if (inForeground) {
+                scope.launch { promoteServerSchedulingIfNeeded() }
+            }
+        }
+    }
+
     fun start(forceRestart: Boolean) {
         if (!forceRestart) {
             if (bootstrapJob?.isActive == true) {
@@ -160,6 +169,42 @@ class BootstrapSessionManager(
             }
             runBootstrapAttempt(forceRestart)
         }
+    }
+
+    /**
+     * 华为等 ROM 会把开机自启/后台拉起的 App 及其子进程冻结在 background cpuset（小核），
+     * 且子进程的调度组在 fork 时固定、App 回前台后不会自动迁移。
+     * 这里在 App 回到前台时检查服务子进程，若仍在 background 组则强制重启一次，
+     * 让新进程继承前台调度组；同一进程只提升一次，避免反复重启。
+     */
+    private suspend fun promoteServerSchedulingIfNeeded() {
+        if (!appForegroundState.isInForeground) {
+            return
+        }
+        if (currentSnapshot.lifecycle != BootstrapLifecycle.READY_MONITORING) {
+            return
+        }
+        val process = serverProcess ?: return
+        if (!process.isAlive()) {
+            return
+        }
+        // Process.pid() 反射在部分 ROM 上拿不到 pid，改用 /proc 扫描定位服务进程。
+        val pid = listOwnedProcesses()
+            .firstOrNull { it.isBootstrapServerProcess() }
+            ?.pid
+            ?: -1
+        if (pid <= 0 || pid == promotedServerPid) {
+            return
+        }
+        val cpuset = runCatching { File("/proc/$pid/cpuset").readText().trim() }.getOrNull() ?: return
+        if (!cpuset.contains("background")) {
+            return
+        }
+        promotedServerPid = pid
+        appendStartupLog(
+            "foreground-promotion: server pid=$pid cpuset=$cpuset，服务进程被固定在后台调度组，回到前台后自动重启以恢复性能。"
+        )
+        start(forceRestart = true)
     }
 
     suspend fun stopForSettings() {
@@ -584,6 +629,9 @@ class BootstrapSessionManager(
             )
             maybeEnableGitForAutoLaunchMode(paths, reason = "http-ready")
             startReadyWatchdog(resolvedReadinessUrl, resolvedLocalUrl)
+            // 服务就绪时 App 可能已在前台（锁屏期间启动、解锁后前台事件早于就绪），
+            // 前台监听不会再触发，这里补一次调度组检查。
+            scope.launch { promoteServerSchedulingIfNeeded() }
         } catch (_: CancellationException) {
             appendStartupLog("Bootstrap cancelled.")
             stopReadyWatchdog(reason = "bootstrap attempt cancelled")
