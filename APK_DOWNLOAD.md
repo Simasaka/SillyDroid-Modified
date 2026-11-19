@@ -1,15 +1,15 @@
 # 完整 APK 下载
 
-## 当前版本：v1.0.1.1-tavern.1.19.0-r4（2026-11-14 后台日志贴底 / 面板加高 / 外开自动切后台 / 开关记忆）
+## 当前版本：v1.0.1.1-tavern.1.19.0-r5（2026-11-17 日志球透明度 / 前台调度提升 / 僵尸会话回收 / 首帧超时兜底）
 
-- **直接下载**：[app-debug.apk](https://github.com/Simasaka/SillyDroid-Modified/releases/download/v1.0.1.1-tavern.1.19.0-r4/app-debug.apk)
-- **Release 页面**：[v1.0.1.1-tavern.1.19.0-r4](https://github.com/Simasaka/SillyDroid-Modified/releases/tag/v1.0.1.1-tavern.1.19.0-r4)
+- **直接下载**：[app-debug.apk](https://github.com/Simasaka/SillyDroid-Modified/releases/download/v1.0.1.1-tavern.1.19.0-r5/app-debug.apk)
+- **Release 页面**：[v1.0.1.1-tavern.1.19.0-r5](https://github.com/Simasaka/SillyDroid-Modified/releases/tag/v1.0.1.1-tavern.1.19.0-r5)
 
 | 项目 | 值 |
 | --- | --- |
 | 文件名 | `app-debug.apk` |
-| 大小 | 335,967,838 字节（约 320 MB） |
-| SHA-256 | `ec09a050b178c8e5038e5b8c9d26df0a882e1b99d795ea69c41703f2c93edfa8` |
+| 大小 | 335,983,010 字节（约 320 MB） |
+| SHA-256 | `5aa3a2ae381bf5474bc507336a83683f4f1134d820627193b9c503b69634b32c` |
 | versionName | `1.0.1.1+tavern.1.19.0` |
 | versionCode | `1810001001` |
 | 包名 | `com.jm.sillydroid.debug` |
